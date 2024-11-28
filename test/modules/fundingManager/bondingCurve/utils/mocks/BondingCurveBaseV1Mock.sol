@@ -155,6 +155,10 @@ contract BondingCurveBaseV1Mock is BondingCurveBase_v1 {
         _setIssuanceToken(_newIssuanceToken);
     }
 
+    // Returns the internal variable of the issuance token storage
+    function call_issuanceToken() external view returns (address) {
+        return address(issuanceToken);
+    }
     // -------------------------------------------------------------------------
     // Helper function
 
