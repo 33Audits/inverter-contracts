@@ -919,7 +919,7 @@ contract BondingCurveBaseV1Test is ModuleTest {
         address actualIssuanceToken =
             bondingCurveFundingManager.getIssuanceToken();
 
-        // Verify that the returned token is the actual token (i.e. works as 
+        // Verify that the returned token is the actual token (i.e. works as
         // expected)
         ERC20Issuance_v1(actualIssuanceToken).mint(address(this), 100);
         assertEq(
@@ -934,7 +934,9 @@ contract BondingCurveBaseV1Test is ModuleTest {
         // Set the wrapper as the new issuance token
         // and verify that it's set
         bondingCurveFundingManager.call_setIssuanceToken(address(wrapper));
-        assertEq(bondingCurveFundingManager.call_issuanceToken(), address(wrapper));
+        assertEq(
+            bondingCurveFundingManager.call_issuanceToken(), address(wrapper)
+        );
 
         // Obtain the issuance token again
         address issuanceTokenAfterWrapper =
