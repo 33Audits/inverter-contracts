@@ -124,11 +124,11 @@ contract LM_PC_FundingPot_v1 is
             revert Module__LM_PC_FundingPot__RoundStartMustBeInFuture();
         }
 
-        if (_roundEnd <= _roundStart && _roundCap == 0) {
+        if (_roundEnd <= _roundStart || _roundCap == 0) {
             revert Module__LM_PC_FundingPot__RoundMustHaveEndTimeOrCap();
         }
 
-        if (_roundEnd > 0 && _roundEnd <= _roundStart) {
+        if (_roundEnd > 0) {
             revert Module__LM_PC_FundingPot__RoundEndMustBeAfterStart();
         }
 
