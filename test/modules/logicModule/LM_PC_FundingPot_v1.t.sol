@@ -68,10 +68,11 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         // Initiate the Logic Module with the metadata and config data
         fundingPot.init(_orchestrator, _METADATA, abi.encode(""));
 
-        // Give test contract the DEPOSIT_ADMIN_ROLE.
+        // Give test contract the funding pot admin role.
         fundingPot.grantModuleRole(
-            fundingPot.FUNDING_POT_ADMIN_ROLE(), fundingPotAdmin
+            fundingPot.FUNDING_POT_ADMIN_ROLE(), address(this)
         );
+        _authorizer.setIsAuthorized(address(this), true);
     }
 
     // -------------------------------------------------------------------------
@@ -104,6 +105,129 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
 
     // -------------------------------------------------------------------------
     // Test External (public + external)
+
+    /* Test: createRound()
+    ├── Given round start <= current time
+    │   └── When createRound() is called
+    │       └── Then it should revert
+    └── Given round start > current time
+        ├── And round end <= round start
+        │   └── When createRound() is called
+        │       └── Then it should revert
+        └── And round end > round start
+            ├── And round cap == 0
+            │   └── When createRound() is called
+            │       └── Then it should revert
+            └── And round cap > 0
+                ├── When createRound() is called
+                │   └── Then it should revert
+                └── And round end == 0
+                    ├── When createRound() is called
+                    │   └── Then it should revert
+                    ├── And round end > 0
+                        └── When createRound() is called
+                            ├── Then it should add new round to the state
+                            ├── And it should increment the round id
+                            └── And it should emit a RoundCreated event
+    */
+
+    function testCreateRound_revertGivenRoundStartLessThanCurrentTime(
+        uint roundStart_,
+        uint roundEnd_,
+        uint roundCap_,
+        address hookContract_,
+        bytes memory hookFunction_,
+        bool closureMechanism_,
+        bool globalAccumulativeCaps_
+    ) public {
+        // Valid parameters setup
+        (
+            roundStart_,
+            roundEnd_,
+            hookContract_,
+            hookFunction_,
+            closureMechanism_,
+            globalAccumulativeCaps_
+        ) = _helper_createValidRoundParameters(
+            roundStart_,
+            roundEnd_,
+            roundCap_,
+            hookContract_,
+            hookFunction_,
+            closureMechanism_,
+            globalAccumulativeCaps_
+        );
+
+        // Setup invalid condition
+        roundStart_ = block.timestamp - 1;
+
+        // Expect revert
+        vm.expectRevert(
+            ILM_PC_FundingPot_v1
+                .Module__LM_PC_FundingPot__RoundStartMustBeInFuture
+                .selector
+        );
+        fundingPot.createRound(
+            roundStart_,
+            roundEnd_,
+            roundCap_,
+            hookContract_,
+            hookFunction_,
+            closureMechanism_,
+            globalAccumulativeCaps_
+        );
+    }
+
+    function testCreateRound_revertGivenRoundEndLessThanOrEqualToRoundStart(
+        uint roundStart_,
+        uint roundEnd_,
+        uint roundCap_,
+        address hookContract_,
+        bytes memory hookFunction_,
+        bool closureMechanism_,
+        bool globalAccumulativeCaps_
+    ) public {
+        // Valid parameters setup
+        (
+            roundStart_,
+            roundEnd_,
+            hookContract_,
+            hookFunction_,
+            closureMechanism_,
+            globalAccumulativeCaps_
+        ) = _helper_createValidRoundParameters(
+            roundStart_,
+            roundEnd_,
+            roundCap_,
+            hookContract_,
+            hookFunction_,
+            closureMechanism_,
+            globalAccumulativeCaps_
+        );
+
+        // Setup invalid condition
+        roundEnd_ = roundStart_ - 1;
+
+        // Expect revert
+        vm.expectRevert(
+            ILM_PC_FundingPot_v1
+                .Module__LM_PC_FundingPot__RoundEndMustBeAfterStart
+                .selector
+        );
+        fundingPot.createRound(
+            roundStart_,
+            roundEnd_,
+            roundCap_,
+            hookContract_,
+            hookFunction_,
+            closureMechanism_,
+            globalAccumulativeCaps_
+        );
+    }
+
+    function testCreateRound_revertGivenRoundCapIsZero() public {}
+
+    function testCreateRound_revertGivenRoundEndIsZero() public {}
 
     /* Test fuzzed createRound()
         ├── Given a round start time is in the future
@@ -297,4 +421,30 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
 
     // -------------------------------------------------------------------------
     // Test: Internal Functions
+
+    // -------------------------------------------------------------------------
+    // Helper Functions
+
+    function _helper_createValidRoundParameters(
+        uint roundStart_,
+        uint roundEnd_,
+        uint roundCap_,
+        address hookContract_,
+        bytes memory hookFunction_,
+        bool closureMechanism_,
+        bool globalAccumulativeCaps_
+    ) internal returns (uint, uint, address, bytes memory, bool, bool) {
+        vm.assume(roundStart_ > block.timestamp);
+        vm.assume(roundEnd_ > roundStart_);
+        vm.assume(roundCap_ > 0);
+        vm.assume(roundEnd_ > 0);
+        return (
+            roundStart_,
+            roundEnd_,
+            hookContract_,
+            hookFunction_,
+            closureMechanism_,
+            globalAccumulativeCaps_
+        );
+    }
 }
