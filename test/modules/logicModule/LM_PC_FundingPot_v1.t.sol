@@ -395,8 +395,8 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
     function testEditRound_revertsGivenUserIsNotFundingPotAdmin(address user_)
         public
     {
+        vm.assume(user_ != address(0) && user_ != address(this));
         testCreateRound();
-
         uint64 roundId = fundingPot.getRoundCount();
 
         vm.startPrank(user_);
@@ -419,7 +419,7 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         ) = _helper_createEditedRoundParams();
 
         _helper_callEditRound(
-            0,
+            roundId,
             roundStart_,
             roundEnd_,
             roundCap_,
@@ -937,6 +937,152 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         assertEq(allowedAddresses, accessCriteria.allowedAddresses);
     }
 
+    /* test setAccessCriteriaPrivilages()
+        ├── Given user does not have FUNDING_POT_ADMIN_ROLE
+        └── When user attempts to set access privilages
+            └── Then it should revert
+        ├── Given round does not exist
+        └── When user attempts to set access privilages
+            └── Then it should revert
+        ├── Given round is active
+        └── When user attempts to set access privilages
+            └── Then it should revert
+        ├── Given access criteria is open
+        └── When user attempts to set access privilages
+            └── Then it should revert
+        └── Given all the valid parameters are provided
+            └── When user attempts to set access criteria
+                └── Then it should not revert
+
+    */
+
+    function testFuzzSetAccessCriteriaPrivilages_revertsGivenUserDoesNotHaveFundingPotAdminRole(
+        address user_
+    ) public {
+        vm.assume(user_ != address(0) && user_ != address(this));
+        testCreateRound();
+        uint64 roundId = fundingPot.getRoundCount();
+        uint8 accessId = 1;
+
+        vm.startPrank(user_);
+        bytes32 roleId = _authorizer.generateRoleId(
+            address(fundingPot), fundingPot.FUNDING_POT_ADMIN_ROLE()
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IModule_v1.Module__CallerNotAuthorized.selector, roleId, user_
+            )
+        );
+        (uint personalCap, bool overrideCap, uint start, uint cliff, uint end) =
+            _helper_createAccessCriteriaPrivilages();
+        fundingPot.setAccessCriteriaPrivilages(
+            roundId, accessId, personalCap, overrideCap, start, cliff, end
+        );
+        vm.stopPrank();
+    }
+
+    function testFuzzSetAccessCriteriaPrivilages_revertsGivenRoundDoesNotExist(
+        uint64 roundId,
+        uint8 accessId
+    ) public {
+        uint64 roundId = fundingPot.getRoundCount();
+        uint8 accessId = 1;
+
+        (uint personalCap, bool overrideCap, uint start, uint cliff, uint end) =
+            _helper_createAccessCriteriaPrivilages();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__RoundNotCreated
+                    .selector
+            )
+        );
+        fundingPot.setAccessCriteriaPrivilages(
+            roundId, accessId, personalCap, overrideCap, start, cliff, end
+        );
+    }
+
+    function testFuzzSetAccessCriteriaPrivilages_revertsGivenRoundIsActive()
+        public
+    {
+        testCreateRound();
+        uint64 roundId = fundingPot.getRoundCount();
+        uint8 accessId = 1;
+
+        (uint personalCap, bool overrideCap, uint start, uint cliff, uint end) =
+            _helper_createAccessCriteriaPrivilages();
+
+        (uint roundStart,,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+        vm.warp(roundStart + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__RoundAlreadyStarted
+                    .selector
+            )
+        );
+        fundingPot.setAccessCriteriaPrivilages(
+            roundId, accessId, personalCap, overrideCap, start, cliff, end
+        );
+    }
+
+    function testFuzzSetAccessCriteriaPrivilages_revertsGivenAccessCriteriaIsOpen(
+    ) public {
+        testCreateRound();
+        uint64 roundId = fundingPot.getRoundCount();
+        uint8 accessId = 1;
+        ILM_PC_FundingPot_v1.AccessCriteria memory accessCriteria =
+            _helper_createAccessCriteria(0);
+        fundingPot.setAccessCriteriaForRound(roundId, accessId, accessCriteria);
+        (uint personalCap, bool overrideCap, uint start, uint cliff, uint end) =
+            _helper_createAccessCriteriaPrivilages();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__CannotSetPrivilagesForOpenAccessCriteria
+                    .selector
+            )
+        );
+        fundingPot.setAccessCriteriaPrivilages(
+            roundId, accessId, personalCap, overrideCap, start, cliff, end
+        );
+    }
+
+    function testFuzzSetAccessCriteriaPrivilages1(uint8 accessCriteriaEnum)
+        public
+    {
+        vm.assume(accessCriteriaEnum >= 1 && accessCriteriaEnum <= 3);
+        testCreateRound();
+        uint64 roundId = 1;
+        uint8 accessId = 1;
+
+        ILM_PC_FundingPot_v1.AccessCriteria memory accessCriteria =
+            _helper_createAccessCriteria(accessCriteriaEnum);
+        fundingPot.setAccessCriteriaForRound(roundId, accessId, accessCriteria);
+
+        (uint personalCap, bool overrideCap, uint start, uint cliff, uint end) =
+            _helper_createAccessCriteriaPrivilages();
+        fundingPot.setAccessCriteriaPrivilages(
+            roundId, accessId, personalCap, overrideCap, start, cliff, end
+        );
+        (
+            bool isRoundOpen_,
+            uint personalCap_,
+            bool overrideCap_,
+            uint start_,
+            uint cliff_,
+            uint end_
+        ) = fundingPot.getRoundAccessCriteriaPrivilages(roundId, accessId);
+        assertEq(isRoundOpen_, accessCriteriaEnum == 0);
+        assertEq(personalCap_, personalCap);
+        assertEq(overrideCap_, overrideCap);
+        assertEq(start_, start);
+        assertEq(cliff_, cliff);
+        assertEq(end_, end);
+    }
+
     // -------------------------------------------------------------------------
     // Test: Internal Functions
 
@@ -1091,5 +1237,18 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
                 );
             }
         }
+    }
+
+    function _helper_createAccessCriteriaPrivilages()
+        internal
+        returns (uint, bool, uint, uint, uint)
+    {
+        uint personalCap = 10 ether;
+        bool overrideCap = true;
+        uint start = block.timestamp;
+        uint cliff = 1 days;
+        uint end = block.timestamp + 2 days;
+
+        return (personalCap, overrideCap, start, cliff, end);
     }
 }
