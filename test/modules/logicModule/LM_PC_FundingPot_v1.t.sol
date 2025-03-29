@@ -809,38 +809,72 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
     }
 
     /*
-    ├── Given a user has already contributed up to their personal cap
-    │   └── When the user attempts to contribute again
-    │       └── Then the transaction should revert
+
     ├── Given the round contribution cap has been reached
-    │   └── the user contributes to the round
+    │   └── When the user contributes to the round
     │       └── Then the transaction should revert
+    │
     ├── Given the round has not started yet
-    │   └── the user contributes to the round
+    │   └── When the user contributes to the round
     │       └── Then the transaction should revert
+    │
     ├── Given the round has ended
-    │   └── the user contributes to the round
+    │   └── When the user contributes to the round
     │       └── Then the transaction should revert
+    │
+    ├── Given a round has been configured with generic round configuration and access criteria
+    │   And the round has started
+    │   And the round has not ended
+    │   And the user has approved their contribution
+    │   And the total contribution cap is not yet reached
+    │   ├── Given the access criteria is an NFT
+    │   │   └── And the user does not fulfill the access criteria
+    │   │       └── When the user contributes to the round
+    │   │           └── Then the transaction should revert
+    │   │
+    │   ├── Given the access criteria is a Merkle Root
+    │   │   └── And the user does not fulfill the access criteria
+    │   │       └── When the user contributes to the round
+    │   │           └── Then the transaction should revert
+    │   │
+    │   ├── Given the access criteria is a List
+    │   │   └── And the user does not fulfill the access criteria
+    │   │       └── When the user contributes to the round
+    │   │           └── Then the transaction should revert
+    │   │
+    │   └── Given a user has already contributed up to their personal cap
+    │       └── When the user attempts to contribute again
+    │           └── Then the transaction should revert
     */
-    function testFuzzContributeToRound_revertsWhenContributionExceedsPersonalCap(
+    function testFuzzContributeToRound_revertsWhenRoundContributionCapReached(
+        uint roundCap_
     ) public {
-        testCreateRound(1000);
+        testCreateRound(10);
 
         uint64 roundId = fundingPot.getRoundCount();
         uint8 accessId = 1;
-        uint amount = 250;
+        uint amount = 100;
 
         ILM_PC_FundingPot_v1.AccessCriteria memory accessCriteria =
             _helper_createAccessCriteria(0);
 
         fundingPot.setAccessCriteriaForRound(roundId, accessId, accessCriteria);
 
-        (uint roundStart,,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+        (uint roundStart,, uint roundCap,,,,) =
+            fundingPot.getRoundGenericParameters(roundId);
         vm.warp(roundStart + 1);
 
         // Approve
         vm.prank(contributor_);
-        fundingPotToken.approve(address(fundingPot), 500);
+        fundingPotToken.approve(address(fundingPot), amount);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__RoundCapReached
+                    .selector
+            )
+        );
 
         vm.prank(contributor_);
         fundingPot.contributeToRound(
@@ -850,30 +884,16 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
             address(fundingPotToken),
             new bytes32[](0)
         );
-
-        // Attempt to contribute beyond personal cap
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ILM_PC_FundingPot_v1
-                    .Module__LM_PC_FundingPot__PersonalCapReached
-                    .selector
-            )
-        );
-        vm.prank(contributor_);
-
-        fundingPot.contributeToRound(
-            roundId, 251, 0, address(fundingPotToken), new bytes32[](0)
-        );
     }
 
-    function testFuzzContributeToRound_revertsWhenRoundContributionCapReached(
+    function testFuzzContributeToRound_revertsWhenUserContributionExceedsTheRoundCap(
         uint roundCap_
     ) public {
-        testCreateRound(10);
+        testCreateRound(200);
 
         uint64 roundId = fundingPot.getRoundCount();
         uint8 accessId = 1;
-        uint amount = 100;
+        uint amount = 201;
 
         ILM_PC_FundingPot_v1.AccessCriteria memory accessCriteria =
             _helper_createAccessCriteria(0);
@@ -1090,6 +1110,52 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
             accessId,
             address(fundingPotToken),
             new bytes32[](0)
+        );
+    }
+
+    function testFuzzContributeToRound_revertsWhenContributionExceedsPersonalCap(
+    ) public {
+        testCreateRound(1000);
+
+        uint64 roundId = fundingPot.getRoundCount();
+        uint8 accessId = 1;
+        uint amount = 250;
+
+        ILM_PC_FundingPot_v1.AccessCriteria memory accessCriteria =
+            _helper_createAccessCriteria(1);
+
+        fundingPot.setAccessCriteriaForRound(roundId, accessId, accessCriteria);
+
+        mockNFTContract.mint(contributor_);
+
+        (uint roundStart,,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+        vm.warp(roundStart + 1);
+
+        // Approve
+        vm.prank(contributor_);
+        fundingPotToken.approve(address(fundingPot), 500);
+
+        vm.prank(contributor_);
+        fundingPot.contributeToRound(
+            roundId,
+            amount,
+            accessId,
+            address(fundingPotToken),
+            new bytes32[](0)
+        );
+
+        // Attempt to contribute beyond personal cap
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__PersonalCapReached
+                    .selector
+            )
+        );
+        vm.prank(contributor_);
+
+        fundingPot.contributeToRound(
+            roundId, 251, 0, address(fundingPotToken), new bytes32[](0)
         );
     }
 
