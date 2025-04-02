@@ -80,8 +80,12 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
 
     ERC721Mock mockNFTContract = new ERC721Mock("NFT Mock", "NFT");
 
+    MockHookSuccess mockHookSuccess = new MockHookSuccess();
+    MockHookFailure mockHookFailure = new MockHookFailure();
+
     // -------------------------------------------------------------------------
     // Setup
+
     function setUp() public {
         // Deploy the SuT
         address impl = address(new LM_PC_FundingPot_v1_Exposed());
@@ -1552,6 +1556,85 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         );
     }
 
+    /* Test closeRound() 
+    ├── Given a round does not exist
+    │   └── When the user calls closeRound()
+    │       └── Then the transaction should revert
+    ├── Given a round is already closed
+    │   └── When the user calls closeRound()
+    │       └── Then the transaction should revert
+    ├── Given a round is not reached its cap or time limit
+    │   └── When the user calls closeRound()
+    │       └── Then the transaction should revert
+    ├── Given a round is reached its cap or time limit
+    |   └── Given the hook execution fails
+    |   │    └── Then the transaction should revert
+    |   └── Given the hook execution succeeds
+    |       └── Then the transaction should succeed
+    │
+    */
+
+    function testCloseRound_revertsGivenRoundDoesNotExist() public {
+        uint64 roundId = fundingPot.getRoundCount() + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__RoundNotCreated
+                    .selector
+            )
+        );
+        fundingPot.closeRound(roundId);
+    }
+
+    function testCloseRound_revertsGivenRoundIsAlreadyClosed() public {
+        testFuzzContributeToRound_worksGivenAllConditionsMet();
+        uint64 roundId = fundingPot.getRoundCount();
+        (, uint roundEnd,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+
+        vm.warp(roundEnd + 1);
+
+        fundingPot.closeRound(roundId);
+        assertEq(fundingPot.isRoundClosed(roundId), true);
+
+        //Try to close the round again
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__RoundHasEnded
+                    .selector
+            )
+        );
+        fundingPot.closeRound(roundId);
+    }
+
+    function testCloseRound_revertsGivenRoundIsNotReachedCapOrTimeLimit()
+        public
+    {
+        testFuzzContributeToRound_worksGivenAllConditionsMet();
+
+        uint64 roundId = fundingPot.getRoundCount();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__ClosureConditionsNotMet
+                    .selector
+            )
+        );
+        fundingPot.closeRound(roundId);
+    }
+
+    function testCloseRound_revertsGivenHookExecutionFails() public {}
+
+    function testCloseRound_worksGivenHookExecutionSucceeds() public {
+        testFuzzContributeToRound_worksGivenAllConditionsMet();
+        uint64 roundId = fundingPot.getRoundCount();
+        (, uint roundEnd,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+
+        vm.warp(roundEnd + 1);
+        fundingPot.closeRound(roundId);
+
+        assertEq(mockHookSuccess.hookCalled(), true);
+    }
     // -------------------------------------------------------------------------
     // Helper Functions
 
@@ -1563,8 +1646,8 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         uint roundStart = block.timestamp + 1 days;
         uint roundEnd = block.timestamp + 2 days;
         uint roundCap = roundCap_;
-        address hookContract = address(0);
-        bytes memory hookFunction = bytes("");
+        address hookContract = address(mockHookSuccess);
+        bytes memory hookFunction = abi.encodeWithSignature("executeHook()");
         bool closureMechanism = false;
         bool globalAccumulativeCaps = false;
 
@@ -1609,8 +1692,8 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         params.roundStart = block.timestamp + 3 days;
         params.roundEnd = block.timestamp + 4 days;
         params.roundCap = 2000;
-        params.hookContract = address(0x1);
-        params.hookFunction = bytes("test");
+        params.hookContract = address(mockHookSuccess);
+        params.hookFunction = abi.encodeWithSignature("executeHook()");
         params.closureMechanism = true;
         params.globalAccumulativeCaps = true;
 
@@ -1690,5 +1773,24 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
                 );
             }
         }
+    }
+}
+
+//@note Jeffrey not sure if this is the right place to the hook contracts, I think we should move to mock contracts
+contract MockHookSuccess {
+    bool private _hookCalled;
+
+    function executeHook() external {
+        _hookCalled = true;
+    }
+
+    function hookCalled() external view returns (bool) {
+        return _hookCalled;
+    }
+}
+
+contract MockHookFailure {
+    function executeHook() external pure {
+        revert("Hook execution failed");
     }
 }

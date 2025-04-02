@@ -105,6 +105,9 @@ contract LM_PC_FundingPot_v1 is
     /// @notice Maps round IDs to total contributions
     mapping(uint64 => uint) private roundTotalContributions;
 
+    /// @notice Maps round IDs to closed status
+    mapping(uint64 => bool) private roundClosed; //@note Jeffrey -> I am using mapping because currently we have stack too deep error, A simplar way to do this is to use a boolean variable isClosed in the Round struct, disuss with Lee
+
     /// @notice The next available round ID.
     uint64 private nextRoundId;
 
@@ -238,6 +241,10 @@ contract LM_PC_FundingPot_v1 is
         return nextRoundId;
     }
 
+    /// @inheritdoc ILM_PC_FundingPot_v1
+    function isRoundClosed(uint64 roundId_) external view returns (bool) {
+        return roundClosed[roundId_];
+    }
     // -------------------------------------------------------------------------
     // Public - Mutating
 
@@ -408,6 +415,17 @@ contract LM_PC_FundingPot_v1 is
         Round storage round =
             _validateRoundAndAccessCriteria(roundId_, accessId_, merkleProof_);
 
+        // // Check if round is closed
+        // if (roundClosed[roundId_]) {
+        //     // Only allow contribution if user has override privilege
+        //     AccessCriteriaPrivilages storage privileges =
+        //         accessCriteriaPrivilages[roundId_][accessId_];
+        //     if (!privileges.overrideCap) {
+        //         revert Module__LM_PC_FundingPot__RoundHasEnded();
+        //     }
+        // } //@note Jeffrey -> do we need this check here? Get an opinion from Lee as well! Because the code checks cap limits in the _validateAndAdjustCaps() function
+        // @note search for "Scenario: Contributing after closure" in gherkin guide
+
         // Check timing and caps based on privileges
         (uint adjustedAmount, bool canOverrideTimeAndCap) =
             _validateTimingAndCaps(roundId_, accessId_, amount_, round);
@@ -418,6 +436,38 @@ contract LM_PC_FundingPot_v1 is
 
         _recordContribution(roundId_, msg.sender, adjustedAmount);
         emit ContributionMade(roundId_, msg.sender, adjustedAmount);
+
+        // contribution triggers automatic closure
+        if (!roundClosed[roundId_] && round.closureMechanism) {
+            bool readyToClose = _checkRoundClosureConditions(roundId_);
+            if (readyToClose) {
+                _closeRound(roundId_);
+            } else {
+                revert Module__LM_PC_FundingPot__ClosureConditionsNotMet();
+            }
+        }
+    }
+
+    /// @inheritdoc ILM_PC_FundingPot_v1
+    function closeRound(uint64 roundId_) external {
+        Round storage round = rounds[roundId_];
+
+        // Validate round exists
+        if (round.roundEnd == 0 && round.roundCap == 0) {
+            revert Module__LM_PC_FundingPot__RoundNotCreated();
+        }
+
+        // Check if round is already closed
+        if (roundClosed[roundId_]) {
+            revert Module__LM_PC_FundingPot__RoundHasEnded();
+        }
+
+        bool readyToClose = _checkRoundClosureConditions(roundId_);
+        if (readyToClose) {
+            _closeRound(roundId_);
+        } else {
+            revert Module__LM_PC_FundingPot__ClosureConditionsNotMet();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -856,5 +906,44 @@ contract LM_PC_FundingPot_v1 is
     {
         userContributions[roundId_][user_] += amount_;
         roundTotalContributions[roundId_] += amount_;
+    }
+
+    /// @notice Handles round closure logic
+    /// @dev    Updates round status and executes hook if needed
+    /// @param  roundId_ The ID of the round to close
+    function _closeRound(uint64 roundId_) internal {
+        Round storage round = rounds[roundId_];
+
+        // Mark round as closed
+        roundClosed[roundId_] = true;
+
+        // Execute hook if configured
+        if (round.hookContract != address(0) && round.hookFunction.length > 0) {
+            (bool success,) = round.hookContract.call(round.hookFunction);
+            if (!success) {
+                revert Module__LM_PC_FundingPot__HookExecutionFailed();
+            }
+        }
+
+        // Emit event for round closure
+        emit RoundClosed(
+            roundId_, block.timestamp, roundTotalContributions[roundId_]
+        );
+    }
+
+    /// @notice Checks if a round has reached its cap or time limit
+    /// @param  roundId_ The ID of the round to check
+    /// @return Boolean indicating if the round has reached its cap or time limit
+    function _checkRoundClosureConditions(uint64 roundId_)
+        internal
+        view
+        returns (bool)
+    {
+        Round storage round = rounds[roundId_];
+        uint totalContribution = roundTotalContributions[roundId_];
+        bool capReached =
+            round.roundCap > 0 && totalContribution == round.roundCap;
+        bool timeEnded = round.roundEnd > 0 && block.timestamp >= round.roundEnd;
+        return capReached || timeEnded;
     }
 }

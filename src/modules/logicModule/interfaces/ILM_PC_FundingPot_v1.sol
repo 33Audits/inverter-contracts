@@ -133,6 +133,14 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @param  amount_ The amount contributed
     event ContributionMade(uint64 roundId_, address contributor_, uint amount_);
 
+    /// @notice Emitted when a round is closed
+    /// @param  roundId_ The ID of the round
+    /// @param  timestamp_ The timestamp when the round was closed
+    /// @param  totalContributions_ The total contributions collected in the round
+    event RoundClosed(
+        uint64 roundId_, uint timestamp_, uint totalContributions_
+    );
+
     // -------------------------------------------------------------------------
     // Errors
 
@@ -202,6 +210,12 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @notice Round contribution cap has been reached
     error Module__LM_PC_FundingPot__RoundCapReached();
 
+    /// @notice Round Closure conditions are not met
+    error Module__LM_PC_FundingPot__ClosureConditionsNotMet();
+
+    /// @notice Hook execution failed
+    error Module__LM_PC_FundingPot__HookExecutionFailed();
+
     // -------------------------------------------------------------------------
     // Public - Getters
 
@@ -268,6 +282,11 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @notice Retrieves the total number of funding rounds.
     /// @return The total number of funding rounds.
     function getRoundCount() external view returns (uint64);
+
+    /// @notice Retrieves the closed status of a round
+    /// @param  roundId_ The ID of the round
+    /// @return The closed status of the round
+    function isRoundClosed(uint64 roundId_) external view returns (bool);
 
     // -------------------------------------------------------------------------
     // Public - Mutating
@@ -357,4 +376,8 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
         address contributionToken_,
         bytes32[] calldata merkleProof_
     ) external;
+
+    /// @notice Closes a round
+    /// @param  roundId_ The ID of the round to close
+    function closeRound(uint64 roundId_) external;
 }
