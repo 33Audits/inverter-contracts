@@ -94,10 +94,10 @@ contract LM_PC_FundingPot_v1 is
     /// @notice Stores all funding rounds by their unique ID.
     mapping(uint64 => Round) private rounds;
 
-    /// @notice Stores all access criteria privilages by their unique ID.
+    /// @notice Stores all access criteria Privileges by their unique ID.
     mapping(
-        uint64 roundId => mapping(uint8 accessId => AccessCriteriaPrivilages)
-    ) private accessCriteriaPrivilages;
+        uint64 roundId => mapping(uint8 accessId => AccessCriteriaPrivileges)
+    ) private accessCriteriaPrivileges;
 
     /// @notice Maps round IDs to user addresses to contribution amounts
     mapping(uint64 => mapping(address => uint)) private userContributions;
@@ -105,11 +105,11 @@ contract LM_PC_FundingPot_v1 is
     /// @notice Maps round IDs to total contributions
     mapping(uint64 => uint) private roundTotalContributions;
 
-    /// @notice Maps round IDs to closed status
-    mapping(uint64 => bool) private roundClosed; //@note Jeffrey -> I am using mapping because currently we have stack too deep error, A simplar way to do this is to use a boolean variable isClosed in the Round struct, disuss with Lee
+    /// @notice The current round count.
+    uint64 private roundCount;
 
-    /// @notice The next available round ID.
-    uint64 private nextRoundId;
+    /// @notice The token used for contributions.
+    IERC20 private contributionToken;
 
     /// @notice Storage gap for future upgrades.
     uint[50] private __gap;
@@ -132,7 +132,7 @@ contract LM_PC_FundingPot_v1 is
         bytes memory configData_
     ) external override(Module_v1) initializer {
         __Module_init(orchestrator_, metadata_);
-
+        address fundingPotToken;
         // Set the flags for the PaymentOrders (this module uses 3 flags).
         bytes32 flags;
         flags |= bytes32(1 << FLAG_START);
@@ -140,6 +140,8 @@ contract LM_PC_FundingPot_v1 is
         flags |= bytes32(1 << FLAG_END);
 
         __ERC20PaymentClientBase_v2_init(flags);
+
+        contributionToken = IERC20(address(fundingPotToken));
     }
 
     // -------------------------------------------------------------------------
@@ -203,7 +205,7 @@ contract LM_PC_FundingPot_v1 is
     }
 
     /// @inheritdoc ILM_PC_FundingPot_v1
-    function getRoundAccessCriteriaPrivilages(uint64 roundId_, uint8 accessId_)
+    function getRoundAccessCriteriaPrivileges(uint64 roundId_, uint8 accessId_)
         external
         view
         returns (
@@ -223,8 +225,8 @@ contract LM_PC_FundingPot_v1 is
         }
 
         // Store the privileges in a local variable to reduce stack usage.
-        AccessCriteriaPrivilages storage privs =
-            accessCriteriaPrivilages[roundId_][accessId_];
+        AccessCriteriaPrivileges storage privs =
+            accessCriteriaPrivileges[roundId_][accessId_];
 
         return (
             false,
@@ -238,7 +240,7 @@ contract LM_PC_FundingPot_v1 is
 
     /// @inheritdoc ILM_PC_FundingPot_v1
     function getRoundCount() external view returns (uint64) {
-        return nextRoundId;
+        return roundCount;
     }
 
     /// @inheritdoc ILM_PC_FundingPot_v1
@@ -258,9 +260,9 @@ contract LM_PC_FundingPot_v1 is
         bool closureMechanism_,
         bool globalAccumulativeCaps_
     ) external onlyModuleRole(FUNDING_POT_ADMIN_ROLE) returns (uint64) {
-        nextRoundId++;
+        roundCount++;
 
-        uint64 roundId = nextRoundId;
+        uint64 roundId = roundCount;
 
         Round storage round = rounds[roundId];
         round.roundStart = roundStart_;
@@ -354,14 +356,14 @@ contract LM_PC_FundingPot_v1 is
     }
 
     /// @inheritdoc ILM_PC_FundingPot_v1
-    function setAccessCriteriaPrivilages(
+    function setAccessCriteriaPrivileges(
         uint64 roundId_,
         uint8 accessId_,
         uint personalCap_,
         bool overrideCap_,
-        uint _start,
-        uint _cliff,
-        uint _end
+        uint start_,
+        uint cliff_,
+        uint end_
     ) external onlyModuleRole(FUNDING_POT_ADMIN_ROLE) {
         Round storage round = rounds[roundId_];
 
@@ -372,29 +374,29 @@ contract LM_PC_FundingPot_v1 is
                 == AccessCriteriaId.OPEN
         ) {
             revert
-                Module__LM_PC_FundingPot__CannotSetPrivilagesForOpenAccessCriteria();
+                Module__LM_PC_FundingPot__CannotSetPrivilegesForOpenAccessCriteria();
         }
-        if (!_validTimes(_start, _cliff, _end)) {
+        if (!_validTimes(start_, cliff_, end_)) {
             revert Module__LM_PC_FundingPot__InvalidTimes();
         }
 
-        AccessCriteriaPrivilages storage accessCriteriaPrivilages =
-            accessCriteriaPrivilages[roundId_][accessId_];
+        AccessCriteriaPrivileges storage accessCriteriaPrivileges =
+            accessCriteriaPrivileges[roundId_][accessId_];
 
-        accessCriteriaPrivilages.personalCap = personalCap_;
-        accessCriteriaPrivilages.overrideCap = overrideCap_;
-        accessCriteriaPrivilages.start = _start;
-        accessCriteriaPrivilages.cliff = _cliff;
-        accessCriteriaPrivilages.end = _end;
+        accessCriteriaPrivileges.personalCap = personalCap_;
+        accessCriteriaPrivileges.overrideCap = overrideCap_;
+        accessCriteriaPrivileges.start = start_;
+        accessCriteriaPrivileges.cliff = cliff_;
+        accessCriteriaPrivileges.end = end_;
 
-        emit AccessCriteriaPrivilagesSet(
+        emit AccessCriteriaPrivilegesSet(
             roundId_,
             accessId_,
             personalCap_,
             overrideCap_,
-            _start,
-            _cliff,
-            _end
+            start_,
+            cliff_,
+            end_
         );
     }
 
@@ -402,8 +404,7 @@ contract LM_PC_FundingPot_v1 is
     function contributeToRound(
         uint64 roundId_,
         uint amount_,
-        uint8 accessId_,
-        address contributionToken_,
+        uint8 accessCriteriaId_,
         bytes32[] calldata merkleProof_
     ) external {
         // Validate input amount.
@@ -412,8 +413,9 @@ contract LM_PC_FundingPot_v1 is
         }
 
         // Validate round and access criteria
-        Round storage round =
-            _validateRoundAndAccessCriteria(roundId_, accessId_, merkleProof_);
+        Round storage round = _validateRoundAndAccessCriteria(
+            roundId_, accessCriteriaId_, merkleProof_
+        );
 
         // // Check if round is closed
         // if (roundClosed[roundId_]) {
@@ -428,13 +430,14 @@ contract LM_PC_FundingPot_v1 is
 
         // Check timing and caps based on privileges
         (uint adjustedAmount, bool canOverrideTimeAndCap) =
-            _validateTimingAndCaps(roundId_, accessId_, amount_, round);
+            _validateTimingAndCaps(roundId_, accessCriteriaId_, amount_, round);
 
-        IERC20(contributionToken_).safeTransferFrom(
+        _recordContribution(roundId_, msg.sender, adjustedAmount);
+
+        IERC20(contributionToken).safeTransferFrom(
             msg.sender, address(this), adjustedAmount
         );
 
-        _recordContribution(roundId_, msg.sender, adjustedAmount);
         emit ContributionMade(roundId_, msg.sender, adjustedAmount);
 
         // contribution triggers automatic closure
@@ -522,18 +525,18 @@ contract LM_PC_FundingPot_v1 is
     }
 
     /// @dev    Validate uint start input.
-    /// @param  _start uint to validate.
-    /// @param  _cliff uint to validate.
-    /// @param  _end uint to validate.
+    /// @param  start_ uint to validate.
+    /// @param  cliff_ uint to validate.
+    /// @param  end_ uint to validate.
     /// @return True if uint is valid.
-    function _validTimes(uint _start, uint _cliff, uint _end)
+    function _validTimes(uint start_, uint cliff_, uint end_)
         internal
         pure
         returns (bool)
     {
-        // _start + _cliff should be less or equal to _end
-        // this already implies that _start is not greater than _end
-        return _start + _cliff <= _end;
+        // start_ + cliff_ should be less or equal to end_
+        // this already implies that start_ is not greater than end_
+        return start_ + cliff_ <= end_;
     }
 
     /// @notice Validates the round existence and access criteria
@@ -563,43 +566,43 @@ contract LM_PC_FundingPot_v1 is
     /// @param roundId_ ID of the round
     /// @param accessId_ ID of the access criteria
     /// @param amount_ Requested contribution amount
-    /// @param round Round storage object
+    /// @param round_ Round storage object
     /// @return adjustedAmount The potentially adjusted contribution amount
     /// @return canOverrideTimeAndCap Whether the user can override time and cap constraints
     function _validateTimingAndCaps(
         uint64 roundId_,
         uint8 accessId_,
         uint amount_,
-        Round storage round
+        Round storage round_
     ) internal view returns (uint adjustedAmount, bool canOverrideTimeAndCap) {
         adjustedAmount = amount_;
 
         // Get access criteria privileges
-        AccessCriteriaPrivilages storage privileges =
-            accessCriteriaPrivilages[roundId_][accessId_];
+        AccessCriteriaPrivileges storage privileges =
+            accessCriteriaPrivileges[roundId_][accessId_];
 
         canOverrideTimeAndCap = privileges.overrideCap;
 
-        _validateTiming(round, privileges, canOverrideTimeAndCap);
+        _validateTiming(round_, privileges, canOverrideTimeAndCap);
 
         // Handle cap validation and amount adjustment
         adjustedAmount = _validateAndAdjustCaps(
-            roundId_, amount_, round, privileges, canOverrideTimeAndCap
+            roundId_, amount_, round_, privileges, canOverrideTimeAndCap
         );
 
         return (adjustedAmount, canOverrideTimeAndCap);
     }
 
     /// @notice Validates timing constraints based on privileges
-    /// @param round Round storage object
-    /// @param privileges Access criteria privileges
-    /// @param canOverrideTimeAndCap Whether the user can override time constraints
+    /// @param round_ Round storage object
+    /// @param privileges_ Access criteria privileges
+    /// @param canOverrideTimeAndCap_ Whether the user can override time constraints
     function _validateTiming(
-        Round storage round,
-        AccessCriteriaPrivilages storage privileges,
-        bool canOverrideTimeAndCap
+        Round storage round_,
+        AccessCriteriaPrivileges storage privileges_,
+        bool canOverrideTimeAndCap_
     ) internal view {
-        if (canOverrideTimeAndCap) {
+        if (canOverrideTimeAndCap_) {
             return;
         }
 
@@ -607,8 +610,9 @@ contract LM_PC_FundingPot_v1 is
 
         // Check custom timing for this access level if defined
         uint effectiveStart =
-            privileges.start > 0 ? privileges.start : round.roundStart;
-        uint effectiveEnd = privileges.end > 0 ? privileges.end : round.roundEnd;
+            privileges_.start > 0 ? privileges_.start : round_.roundStart;
+        uint effectiveEnd =
+            privileges_.end > 0 ? privileges_.end : round_.roundEnd;
 
         if (currentTime < effectiveStart) {
             revert Module__LM_PC_FundingPot__RoundHasNotStarted();
@@ -621,27 +625,27 @@ contract LM_PC_FundingPot_v1 is
     /// @notice Validates cap constraints and adjusts amount if needed
     /// @param roundId_ ID of the round
     /// @param amount_ Requested contribution amount
-    /// @param round Round storage object
-    /// @param privileges Access criteria privileges
-    /// @param canOverrideTimeAndCap Whether the user can override cap constraints
+    /// @param round_ Round storage object
+    /// @param privileges_ Access criteria privileges
+    /// @param canOverrideTimeAndCap_ Whether the user can override cap constraints
     /// @return adjustedAmount The potentially adjusted contribution amount
     function _validateAndAdjustCaps(
         uint64 roundId_,
         uint amount_,
-        Round storage round,
-        AccessCriteriaPrivilages storage privileges,
-        bool canOverrideTimeAndCap
+        Round storage round_,
+        AccessCriteriaPrivileges storage privileges_,
+        bool canOverrideTimeAndCap_
     ) internal view returns (uint adjustedAmount) {
         adjustedAmount = amount_;
 
-        if (!canOverrideTimeAndCap && round.roundCap > 0) {
+        if (!canOverrideTimeAndCap_ && round_.roundCap > 0) {
             uint totalRoundContribution = _getTotalRoundContribution(roundId_);
-            uint effectiveRoundCap = round.roundCap;
+            uint effectiveRoundCap = round_.roundCap;
 
             // If global accumulative caps are enabled, add unused capacity from previous rounds
-            if (round.globalAccumulativeCaps) {
+            if (round_.globalAccumulativeCaps) {
                 uint unusedCapacityFromPrevious = 0;
-                for (uint64 i = 1; i < roundId_; i++) {
+                for (uint64 i = 1; i < roundId_; ++i) {
                     Round storage prevRound = rounds[i];
                     if (!prevRound.globalAccumulativeCaps) continue;
 
@@ -668,8 +672,8 @@ contract LM_PC_FundingPot_v1 is
         // Check and adjust for personal cap
         uint userPreviousContribution =
             _getUserContribution(roundId_, msg.sender);
-        uint userPersonalCap = privileges.personalCap > 0
-            ? privileges.personalCap
+        uint userPersonalCap = privileges_.personalCap > 0
+            ? privileges_.personalCap
             : _getUserPersonalCap(roundId_, msg.sender);
 
         if (userPreviousContribution + adjustedAmount > userPersonalCap) {
@@ -804,14 +808,14 @@ contract LM_PC_FundingPot_v1 is
         uint totalUnusedCapacity = 0;
         bytes32[] memory emptyProof = new bytes32[](0);
 
-        for (uint64 i = 1; i < currentRoundId_; i++) {
+        for (uint64 i = 1; i < currentRoundId_; ++i) {
             Round storage prevRound = rounds[i];
             if (!prevRound.globalAccumulativeCaps) continue;
 
             uint personalCap = BASE_PERSONAL_CAP;
 
             // Check if there were specific privileges for this user in previous rounds
-            for (uint8 j = 0; j < 4; j++) {
+            for (uint8 j = 0; j < 4; ++j) {
                 AccessCriteria storage accessCriteria =
                     prevRound.accessCriterias[j];
                 (bool isValid,) = _checkAccessCriteriaEligibility(
@@ -819,8 +823,8 @@ contract LM_PC_FundingPot_v1 is
                 );
 
                 if (isValid) {
-                    AccessCriteriaPrivilages storage privileges =
-                        accessCriteriaPrivilages[i][j];
+                    AccessCriteriaPrivileges storage privileges =
+                        accessCriteriaPrivileges[i][j];
                     if (privileges.personalCap > personalCap) {
                         personalCap = privileges.personalCap;
                     }
@@ -837,15 +841,16 @@ contract LM_PC_FundingPot_v1 is
 
     ///@notice Checks if a sender is in a list of allowed addresses
     /// @dev    Performs a linear search to validate address inclusion
-    /// @param  allowedAddresses Array of addresses permitted to participate
-    /// @param  sender Address to check for permission
+    /// @param  allowedAddresses_ Array of addresses permitted to participate
+    /// @param  sender_ Address to check for permission
     /// @return Boolean indicating whether the sender is in the allowed list
     function _checkAllowedAddressList(
-        address[] memory allowedAddresses,
-        address sender
+        address[] memory allowedAddresses_,
+        address sender_
     ) internal pure returns (bool) {
-        for (uint i = 0; i < allowedAddresses.length; i++) {
-            if (allowedAddresses[i] == sender) {
+        uint lengthOfAddresses = allowedAddresses_.length;
+        for (uint i = 0; i < lengthOfAddresses; ++i) {
+            if (allowedAddresses_[i] == sender_) {
                 return true;
             }
         }
