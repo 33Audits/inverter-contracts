@@ -1582,7 +1582,7 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
     }
 
     function testCloseRound_revertsGivenRoundIsAlreadyClosed() public {
-        testFuzzContributeToRound_worksGivenAllConditionsMet();
+        testCreateRound(1000);
         uint64 roundId = fundingPot.getRoundCount();
         (, uint roundEnd,,,,,) = fundingPot.getRoundGenericParameters(roundId);
 
@@ -1605,7 +1605,7 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
     function testCloseRound_revertsGivenRoundIsNotReachedCapOrTimeLimit()
         public
     {
-        testFuzzContributeToRound_worksGivenAllConditionsMet();
+        testCreateRound(1000);
 
         uint64 roundId = fundingPot.getRoundCount();
         vm.expectRevert(
@@ -1618,10 +1618,8 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         fundingPot.closeRound(roundId);
     }
 
-    function testCloseRound_revertsGivenHookExecutionFails() public {}
-
     function testCloseRound_worksGivenHookExecutionSucceeds() public {
-        testFuzzContributeToRound_worksGivenAllConditionsMet();
+        testCreateRound(1000);
         uint64 roundId = fundingPot.getRoundCount();
         (, uint roundEnd,,,,,) = fundingPot.getRoundGenericParameters(roundId);
 

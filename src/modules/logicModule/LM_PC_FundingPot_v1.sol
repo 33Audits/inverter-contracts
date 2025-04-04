@@ -102,6 +102,9 @@ contract LM_PC_FundingPot_v1 is
     /// @notice Maps round IDs to total contributions
     mapping(uint64 => uint) private roundTotalContributions;
 
+    /// @notice Maps round IDs to closed status
+    mapping(uint64 => bool) private roundClosed;
+
     /// @notice The current round count.
     uint64 private roundCount;
 
@@ -444,6 +447,8 @@ contract LM_PC_FundingPot_v1 is
         uint adjustedAmount = _validateRoundContribution(
             roundId_, accessCriteriaId_, merkleProof_, amount_
         );
+
+        Round storage round = rounds[roundId_];
 
         _recordContribution(roundId_, msg.sender, adjustedAmount);
 
