@@ -73,10 +73,10 @@ contract FundingPotE2E is E2ETest {
         );
 
         // Additional Logic Modules
-        setUpFundingPot();
+        setUpLM_PC_FundingPot_v1();
         moduleConfigurations.push(
             IOrchestratorFactory_v1.ModuleConfig(
-                fundingPotMetadata, abi.encode(stakingToken)
+                LM_PC_FundingPot_v1Metadata, abi.encode(contributionToken)
             )
         );
     }
