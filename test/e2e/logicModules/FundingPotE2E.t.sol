@@ -261,9 +261,6 @@ contract FundingPotE2E is E2ETest {
         vm.prank(contributor1);
         fundingPot.contributeToRound(round1Id, 1e18, 0, new bytes32[](0));
 
-        // Trigger payment order creation
-        fundingPot.trigger();
-
         // Fast forward to after rounds end
         vm.warp(block.timestamp + 32 days);
 
