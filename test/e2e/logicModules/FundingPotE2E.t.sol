@@ -19,6 +19,8 @@ import {
 } from
     "test/modules/fundingManager/bondingCurve/FM_BC_Bancor_Redeeming_VirtualSupply_v1.t.sol";
 import {PP_Streaming_v2} from "src/modules/paymentProcessor/PP_Streaming_v2.sol";
+import {IPP_Streaming_v2} from
+    "src/modules/paymentProcessor/interfaces/IPP_Streaming_v2.sol";
 
 import {ERC165Upgradeable} from
     "@oz-up/utils/introspection/ERC165Upgradeable.sol";
@@ -219,6 +221,8 @@ contract FundingPotE2E is E2ETest {
                 allowedAddresses: allowedAddresses
             })
         );
+
+        // Set up access criteria privileges with streaming parameters
         fundingPot.setAccessCriteriaPrivileges(
             round1Id,
             0, // accessCriteriaId
@@ -264,7 +268,13 @@ contract FundingPotE2E is E2ETest {
         // Fast forward to after rounds end
         vm.warp(block.timestamp + 32 days);
 
-        /// Assert a payment order was created
+        // Verify payment orders were created
+        assertTrue(
+            paymentProcessor.isActivePaymentReceiver(
+                address(fundingPot), contributor1
+            )
+        );
+        vm.prank(contributor1);
         PP_Streaming_v2.Stream[] memory streams = paymentProcessor
             .viewAllPaymentOrders(address(fundingPot), contributor1);
         assertEq(streams.length, 1);

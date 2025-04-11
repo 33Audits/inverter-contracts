@@ -540,9 +540,24 @@ contract LM_PC_FundingPot_v1 is
         bool readyToClose = _checkRoundClosureConditions(roundId_);
         if (readyToClose) {
             _closeRound(roundId_);
+
+            /// TODO: Implement proportional distribution to contributors
+            /// Get total contributions for the round
+            /// Buy tokens from the bonding curve contract and transfer to THIS contract
+            /// IBondingCurveBase_v1(deployedAddress).buyFor(
+            //     address(this), totalContributions, 0
+            // );
         } else {
             revert Module__LM_PC_FundingPot__ClosureConditionsNotMet();
         }
+    }
+
+    function claimTokens(uint64 roundId_) external {
+        // TODO: This is allow users to claim their tokens after round closer
+        /// However we should check the round a user contribute to
+        // And then we use the vesting schedule for that round to see if a user can claim
+        // If they can, we transfer the tokens to them
+        // If they can't, we revert
     }
 
     // -------------------------------------------------------------------------
