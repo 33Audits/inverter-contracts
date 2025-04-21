@@ -5,7 +5,7 @@ pragma solidity 0.8.23;
 import {LM_PC_FundingPot_v1} from
     "src/modules/logicModule/LM_PC_FundingPot_v1.sol";
 
-// Access Mock of the PP_Template_v1 contract for Testing.
+// Access Mock of the LM_PC_FundingPot_v1 contract for Testing.
 contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     // Use the `exposed_` prefix for functions to expose internal functions for
     // testing.
@@ -63,6 +63,7 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
+<<<<<<< HEAD
      * @notice Exposes the internal _validateAccessCriteria function for testing
      */
     function exposed_validateAccessCriteria(
@@ -75,6 +76,8 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
+=======
+>>>>>>> bec7682a (test: improve test coverage)
      * @notice Exposes the internal _checkAccessCriteriaEligibility function for testing
      */
     function exposed_checkAccessCriteriaEligibility(
@@ -89,6 +92,7 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
+<<<<<<< HEAD
      * @notice Exposes the internal _checkNftOwnership function for testing
      */
     function exposed_checkNftOwnership(address nftContract_, address user_)
@@ -112,6 +116,8 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
+=======
+>>>>>>> bec7682a (test: improve test coverage)
      * @notice Exposes the internal _calculateUnusedCapacityFromPreviousRounds function for testing
      */
     function exposed_calculateUnusedCapacityFromPreviousRounds(uint32 roundId_)
@@ -123,6 +129,7 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
+<<<<<<< HEAD
      * @notice Exposes the internal _closeRound function for testing
      */
     function exposed_closeRound(uint32 roundId_) external {
@@ -130,6 +137,8 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
+=======
+>>>>>>> bec7682a (test: improve test coverage)
      * @notice Exposes the internal _checkRoundClosureConditions function for testing
      */
     function exposed_checkRoundClosureConditions(uint32 roundId_)
