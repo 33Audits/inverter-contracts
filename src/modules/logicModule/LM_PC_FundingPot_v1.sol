@@ -254,7 +254,7 @@ contract LM_PC_FundingPot_v1 is
         AccessCriteria storage accessCriteria =
             round.accessCriterias[accessCriteriaId__];
 
-        if (accessCriteria.accessCriteriaType == AccessCriteriaType.OPEN) {
+        if (accessCriteria.accessCriteriaType == AccessCriteriaType.UNSET) {
             return (0, false, 0, 0, 0);
         }
 
@@ -426,6 +426,10 @@ contract LM_PC_FundingPot_v1 is
         address[] calldata allowedAddresses_
     ) external onlyModuleRole(FUNDING_POT_ADMIN_ROLE) {
         Round storage round = rounds[roundId_];
+
+        if (accessCriteriaId_ > MAX_ACCESS_CRITERIA_ID) {
+            revert Module__LM_PC_FundingPot__InvalidAccessCriteriaId();
+        }
 
         _validateEditRoundParameters(round);
 
@@ -927,7 +931,6 @@ contract LM_PC_FundingPot_v1 is
         returns (uint unusedCapacityFromPrevious)
     {
         unusedCapacityFromPrevious = 0;
-        // Iterate through all previous rounds (1 to roundId_-1)
         for (uint64 i = 1; i < roundId_; ++i) {
             Round storage prevRound = rounds[i];
             if (!prevRound.globalAccumulativeCaps) continue;
@@ -983,12 +986,10 @@ contract LM_PC_FundingPot_v1 is
         try IERC721(nftContract_).balanceOf(user_) returns (uint balance) {
             if (balance == 0) {
                 return false;
-                // revert Module__LM_PC_FundingPot__AccessCriteriaNftFailed();
             }
             return true;
         } catch {
             return false;
-            // revert Module__LM_PC_FundingPot__AccessCriteriaNftFailed();
         }
     }
 
@@ -1009,7 +1010,6 @@ contract LM_PC_FundingPot_v1 is
 
         if (!MerkleProof.verify(merkleProof_, root_, leaf)) {
             return false;
-            // revert Module__LM_PC_FundingPot__AccessCriteriaMerkleFailed();
         }
 
         return true;

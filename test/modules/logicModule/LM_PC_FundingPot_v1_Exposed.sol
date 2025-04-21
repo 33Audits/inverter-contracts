@@ -5,7 +5,7 @@ pragma solidity 0.8.23;
 import {LM_PC_FundingPot_v1} from
     "src/modules/logicModule/LM_PC_FundingPot_v1.sol";
 
-// Access Mock of the PP_Template_v1 contract for Testing.
+// Access Mock of the LM_PC_FundingPot_v1 contract for Testing.
 contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     // Use the `exposed_` prefix for functions to expose internal functions for
     // testing.
@@ -63,18 +63,6 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
-     * @notice Exposes the internal _validateAccessCriteria function for testing
-     */
-    function exposed_validateAccessCriteria(
-        uint64 roundId_,
-        uint8 accessId_,
-        bytes32[] calldata merkleProof_,
-        address user_
-    ) external view {
-        _validateAccessCriteria(roundId_, accessId_, merkleProof_, user_);
-    }
-
-    /**
      * @notice Exposes the internal _checkAccessCriteriaEligibility function for testing
      */
     function exposed_checkAccessCriteriaEligibility(
@@ -89,29 +77,6 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     }
 
     /**
-     * @notice Exposes the internal _checkNftOwnership function for testing
-     */
-    function exposed_checkNftOwnership(address nftContract_, address user_)
-        external
-        view
-        returns (bool)
-    {
-        return _checkNftOwnership(nftContract_, user_);
-    }
-
-    /**
-     * @notice Exposes the internal _validateMerkleProof function for testing
-     */
-    function exposed_validateMerkleProof(
-        bytes32 root_,
-        bytes32[] memory merkleProof_,
-        address user_,
-        uint64 roundId_
-    ) external pure returns (bool) {
-        return _validateMerkleProof(root_, merkleProof_, user_, roundId_);
-    }
-
-    /**
      * @notice Exposes the internal _calculateUnusedCapacityFromPreviousRounds function for testing
      */
     function exposed_calculateUnusedCapacityFromPreviousRounds(uint64 roundId_)
@@ -120,13 +85,6 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
         returns (uint)
     {
         return _calculateUnusedCapacityFromPreviousRounds(roundId_);
-    }
-
-    /**
-     * @notice Exposes the internal _closeRound function for testing
-     */
-    function exposed_closeRound(uint64 roundId_) external {
-        _closeRound(roundId_);
     }
 
     /**
