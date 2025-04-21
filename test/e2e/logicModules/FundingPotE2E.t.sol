@@ -64,14 +64,6 @@ contract FundingPotE2E is E2ETest {
         //      moduleConfigurations[2]  => PaymentProcessor
         //      moduleConfigurations[3:] => Additional Logic Modules
 
-        // FundingManager
-        setUpDepositVaultFundingManager();
-        moduleConfigurations.push(
-            IOrchestratorFactory_v1.ModuleConfig(
-                depositVaultMetadata, abi.encode(address(token))
-            )
-        );
-
         // Authorizer
         setUpRoleAuthorizer();
         moduleConfigurations.push(
@@ -269,6 +261,13 @@ contract FundingPotE2E is E2ETest {
 
         // Fast forward to after rounds end
         vm.warp(block.timestamp + 32 days);
+
+        //// TODO: Zuhaib
+        //// first get this to compile
+        /// once it compiles we shoule be able to check that the PP streaming has a order created
+        /// for contributor1
+        /// We should then be able to process payments
+        /// and these tokesn will get sent to contributor1
 
         /// Assert a payment order was created
         PP_Streaming_v2.Stream[] memory streams = paymentProcessor
