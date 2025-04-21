@@ -930,7 +930,6 @@ contract LM_PC_FundingPot_v1 is
         view
         returns (uint unusedCapacityFromPrevious)
     {
-        unusedCapacityFromPrevious = 0;
         for (uint64 i = 1; i < roundId_; ++i) {
             Round storage prevRound = rounds[i];
             if (!prevRound.globalAccumulativeCaps) continue;
