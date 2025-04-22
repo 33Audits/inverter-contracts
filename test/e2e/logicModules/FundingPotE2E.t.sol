@@ -185,12 +185,10 @@ contract FundingPotE2E is E2ETest {
 
         fundingPot.setAccessCriteriaForRound(
             round1Id,
-            ILM_PC_FundingPot_v1.AccessCriteria({
-                accessCriteriaType: ILM_PC_FundingPot_v1.AccessCriteriaType.LIST,
-                nftContract: address(0),
-                merkleRoot: bytes32(0),
-                allowedAddresses: allowedAddresses
-            })
+            uint8(ILM_PC_FundingPot_v1.AccessCriteriaType.LIST),
+            address(0),
+            bytes32(0),
+            allowedAddresses
         );
 
         // Round 2
@@ -210,20 +208,15 @@ contract FundingPotE2E is E2ETest {
 
         fundingPot.setAccessCriteriaForRound(
             round2Id,
-            ILM_PC_FundingPot_v1.AccessCriteria({
-                accessCriteriaType: ILM_PC_FundingPot_v1.AccessCriteriaType.LIST,
-                nftContract: address(0),
-                merkleRoot: bytes32(0),
-                allowedAddresses: allowedAddresses
-            })
+            uint8(ILM_PC_FundingPot_v1.AccessCriteriaType.LIST),
+            address(0),
+            bytes32(0),
+            allowedAddresses
         );
         fundingPot.setAccessCriteriaPrivileges(
             round1Id,
             0, // accessCriteriaId
             1_000_000_000_000_000_000, // personalCap
-            0, // capByNFT
-            0, // capByMerkle
-            0, // capByList
             true, // overrideContributionSpan
             10, // start
             0, // cliff
@@ -233,9 +226,6 @@ contract FundingPotE2E is E2ETest {
             round2Id,
             0, // accessCriteriaId
             1_000_000_000_000_000_000, // personalCap
-            0, // capByNFT
-            0, // capByMerkle
-            0, // capByList
             true, // overrideContributionSpan
             10, // start
             0, // cliff
