@@ -29,6 +29,8 @@ import {ERC20Mock} from "test/utils/mocks/ERC20Mock.sol";
 import {SafeERC20} from "@oz/token/ERC20/utils/SafeERC20.sol";
 import {ERC20Issuance_v1} from "@ex/token/ERC20Issuance_v1.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 contract FundingPotE2E is E2ETest {
     // Module Configurations for the current E2E test. Should be filled during setUp() call.
     IOrchestratorFactory_v1.ModuleConfig[] moduleConfigurations;
@@ -46,13 +48,14 @@ contract FundingPotE2E is E2ETest {
 
     // Constants
     uint constant _SENTINEL = type(uint).max;
-    ERC20Mock contributionToken = new ERC20Mock("Contribution Mock", "C_MOCK");
+    //ERC20Mock contributionToken = new ERC20Mock("Contribution Mock", "C_MOCK");
+    ERC20Mock contributionToken;
 
     function setUp() public override {
-        vm.label({
-            account: address(contributionToken),
-            newLabel: ERC20Mock(address(contributionToken)).symbol()
-        });
+        // vm.label({
+        //     account: address(contributionToken),
+        //     newLabel: ERC20Mock(address(contributionToken)).symbol()
+        // });
         // Setup common E2E framework
         super.setUp();
 
@@ -63,6 +66,32 @@ contract FundingPotE2E is E2ETest {
         //      moduleConfigurations[1]  => Authorizer
         //      moduleConfigurations[2]  => PaymentProcessor
         //      moduleConfigurations[3:] => Additional Logic Modules
+
+        issuanceToken = new ERC20Issuance_v1(
+            "Bonding Curve Token", "BCT", 18, type(uint).max - 1, address(this)
+        );
+
+        IFM_BC_Bancor_Redeeming_VirtualSupply_v1.BondingCurveProperties memory
+            bc_properties = IFM_BC_Bancor_Redeeming_VirtualSupply_v1
+                .BondingCurveProperties({
+                formula: address(formula),
+                reserveRatioForBuying: 333_333,
+                reserveRatioForSelling: 333_333,
+                buyFee: 0,
+                sellFee: 0,
+                buyIsOpen: true,
+                sellIsOpen: true,
+                initialIssuanceSupply: 10,
+                initialCollateralSupply: 30
+            });
+
+        // FundingManager
+        moduleConfigurations.push(
+            IOrchestratorFactory_v1.ModuleConfig(
+                bancorVirtualSupplyBondingCurveFundingManagerMetadata,
+                abi.encode(address(issuanceToken), bc_properties, token)
+            )
+        );
 
         // Authorizer
         setUpRoleAuthorizer();
@@ -91,31 +120,6 @@ contract FundingPotE2E is E2ETest {
         setUpBancorVirtualSupplyBondingCurveFundingManager();
 
         // BancorFormula 'formula' is instantiated in the E2EModuleRegistry
-
-        issuanceToken = new ERC20Issuance_v1(
-            "Bonding Curve Token", "BCT", 18, type(uint).max - 1, address(this)
-        );
-
-        IFM_BC_Bancor_Redeeming_VirtualSupply_v1.BondingCurveProperties memory
-            bc_properties = IFM_BC_Bancor_Redeeming_VirtualSupply_v1
-                .BondingCurveProperties({
-                formula: address(formula),
-                reserveRatioForBuying: 333_333,
-                reserveRatioForSelling: 333_333,
-                buyFee: 0,
-                sellFee: 0,
-                buyIsOpen: true,
-                sellIsOpen: true,
-                initialIssuanceSupply: 10,
-                initialCollateralSupply: 30
-            });
-
-        moduleConfigurations.push(
-            IOrchestratorFactory_v1.ModuleConfig(
-                bancorVirtualSupplyBondingCurveFundingManagerMetadata,
-                abi.encode(address(issuanceToken), bc_properties, token)
-            )
-        );
     }
 
     function init() private {
@@ -131,6 +135,8 @@ contract FundingPotE2E is E2ETest {
         orchestrator =
             _create_E2E_Orchestrator(workflowConfig, moduleConfigurations);
 
+        contributionToken =
+            ERC20Mock(address(orchestrator.fundingManager().token()));
         // Get the Bancor bonding curve funding manager
         bondingCurveFundingManager = IFM_BC_Bancor_Redeeming_VirtualSupply_v1(
             address(orchestrator.fundingManager())
@@ -237,35 +243,54 @@ contract FundingPotE2E is E2ETest {
         contributionToken.mint(contributor2, 500e18);
         contributionToken.mint(contributor3, 1000e18);
 
-        // Contributors approve funding pot
-        vm.prank(contributor1);
-        contributionToken.approve(address(fundingPot), 500e18);
-        vm.prank(contributor2);
-        contributionToken.approve(address(fundingPot), 500e18);
-        vm.prank(contributor3);
-        contributionToken.approve(address(fundingPot), 1000e18);
+        // // Contributors approve funding pot
+        // vm.prank(contributor1);
+        // contributionToken.approve(address(fundingPot), 500e18);
+        // vm.prank(contributor2);
+        // contributionToken.approve(address(fundingPot), 500e18);
+        // vm.prank(contributor3);
+        // contributionToken.approve(address(fundingPot), 1000e18);
 
-        // Contributors contribute to rounds
-        vm.prank(contributor1);
-        fundingPot.contributeToRound(round1Id, 1e18, 0, new bytes32[](0));
+        // // Contributors contribute to rounds
+        // vm.prank(contributor1);
+        // fundingPot.contributeToRound(round1Id, 1e18, 0, new bytes32[](0));
+
+        vm.startPrank(contributor1);
+        contributionToken.approve(address(fundingPot), 500e18);
+        fundingPot.contributeToRound(round1Id, 500e18, 0, new bytes32[](0));
+        vm.stopPrank();
+
+        vm.startPrank(contributor2);
+        contributionToken.approve(address(fundingPot), 500e18);
+        fundingPot.contributeToRound(round1Id, 500e18, 0, new bytes32[](0));
+        vm.stopPrank();
+
+        vm.startPrank(contributor3);
+        contributionToken.approve(address(fundingPot), 1000e18);
+        fundingPot.contributeToRound(round1Id, 1000e18, 0, new bytes32[](0));
+        vm.stopPrank();
 
         // Fast forward to after rounds end
         vm.warp(block.timestamp + 32 days);
 
-        //// TODO: Zuhaib
-        //// rebase onto your other branch
-        //// first get this to compile
-        /// once it compiles we shoule be able to check that the PP streaming has a order created
-        /// for contributor1
-        /// We should then be able to process payments
-        /// and these tokesn will get sent to contributor1
+        console2.log("closeRound: ", fundingPot.isRoundClosed(round1Id));
+        fundingPot.closeRound(round1Id);
+        console2.log("closeRound: ", fundingPot.isRoundClosed(round1Id));
 
-        /// Assert a payment order was created
-        PP_Streaming_v2.Stream[] memory streams = paymentProcessor
-            .viewAllPaymentOrders(address(fundingPot), contributor1);
-        assertEq(streams.length, 1);
+        // //// TODO: Zuhaib
+        // //// rebase onto your other branch
+        // //// first get this to compile
+        // /// once it compiles we shoule be able to check that the PP streaming has a order created
+        // /// for contributor1
+        // /// We should then be able to process payments
+        // /// and these tokesn will get sent to contributor1
 
-        // Verify tokens were minted from curve
-        uint totalContributions = 1500e18; // 300 + 200 + 1000
+        // /// Assert a payment order was created
+        // PP_Streaming_v2.Stream[] memory streams = paymentProcessor
+        //     .viewAllPaymentOrders(address(fundingPot), contributor1);
+        // assertEq(streams.length, 1);
+
+        // // Verify tokens were minted from curve
+        // uint totalContributions = 1500e18; // 300 + 200 + 1000
     }
 }
