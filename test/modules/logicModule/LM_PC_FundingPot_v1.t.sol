@@ -2461,7 +2461,7 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
     }
 
     // Test exposed internal function closeRound
-    function test_closeRound_WhenCapReached() public {
+    function test_closeRound_worksGivenCapReached() public {
         testCreateRound();
 
         uint64 roundId = fundingPot.getRoundCount();
