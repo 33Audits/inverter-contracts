@@ -65,22 +65,6 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
         bytes32[] merkleProof;
     }
 
-    /// @notice Struct to represent a user's complete eligibility information for a round
-    /// @param  isEligible Whether the user is eligible for the round through any criteria
-    /// @param  isNftHolder Whether the user is eligible through NFT holding
-    /// @param  isInMerkleTree Whether the user is eligible through Merkle proof
-    /// @param  isInAllowlist Whether the user is eligible through allowlist
-    /// @param  highestPersonalCap The highest personal cap the user can access
-    /// @param  canOverrideContributionSpan Whether the user has any criteria that can override contribution span
-    struct RoundUserEligibility {
-        bool isEligible;
-        bool isNftHolder;
-        bool isInMerkleTree;
-        bool isInAllowlist;
-        uint highestPersonalCap;
-        bool canOverrideContributionSpan;
-    }
-
     // -------------------------------------------------------------------------
     // Enums
 
@@ -189,6 +173,24 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @param  addressesRemoved_ The addresses that were removed from the allowlist.
     event AllowlistedAddressesRemoved(
         uint64 roundId_, uint8 accessCriteriaId_, address[] addressesRemoved_
+    );
+
+    /// @notice Emitted when a payment order is created.
+    /// @param  roundId_ The ID of the round.
+    /// @param  contributor_ The address of the contributor.
+    /// @param  accessCriteriaId_ The ID of the access criteria.
+    /// @param  tokensForThisAccessCriteria_ The amount of tokens contributed for this access criteria.
+    /// @param  start_ The start timestamp for for when the linear vesting starts.
+    /// @param  cliff_ The time in seconds from start time at which the unlock starts.
+    /// @param  end_ The end timestamp for when the linear vesting ends.
+    event PaymentOrderCreated(
+        uint64 roundId_,
+        address contributor_,
+        uint8 accessCriteriaId_,
+        uint tokensForThisAccessCriteria_,
+        uint start_,
+        uint cliff_,
+        uint end_
     );
 
     // -------------------------------------------------------------------------
@@ -340,14 +342,20 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
 
     /// @notice Gets eligibility information for a user in a specific round
     /// @param  roundId_ The ID of the round to check eligibility for
+    /// @param  accessCriteriaId_ The ID of the access criteria to check eligibility for
     /// @param  merkleProof_ The Merkle proof for validation if needed
     /// @param  user_ The address of the user to check
-    /// @return eligibility Complete eligibility information for the user
+    /// @return isEligible Whether the user is eligible for the round through any criteria
+    /// @return remainingAmountAllowedToContribute The remaining contribution the user can make
     function getUserEligibility(
         uint64 roundId_,
+        uint8 accessCriteriaId_,
         bytes32[] memory merkleProof_,
         address user_
-    ) external view returns (RoundUserEligibility memory eligibility);
+    )
+        external
+        view
+        returns (bool isEligible, uint remainingAmountAllowedToContribute);
 
     // -------------------------------------------------------------------------
     // Public - Mutating

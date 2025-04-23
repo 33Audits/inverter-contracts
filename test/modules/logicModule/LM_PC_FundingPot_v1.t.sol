@@ -1919,15 +1919,11 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         );
         mockNFTContract.mint(contributor1_);
 
-        ILM_PC_FundingPot_v1.RoundUserEligibility memory eligibility =
-        fundingPot.getUserEligibility(roundId, new bytes32[](0), contributor1_);
+        (bool isEligible, uint remainingAmountAllowedToContribute) = fundingPot
+            .getUserEligibility(roundId, accessId, new bytes32[](0), contributor1_);
 
-        assertTrue(eligibility.isEligible);
-        assertTrue(eligibility.isNftHolder);
-        assertFalse(eligibility.isInMerkleTree);
-        assertFalse(eligibility.isInAllowlist);
-        assertEq(eligibility.highestPersonalCap, 1000);
-        assertFalse(eligibility.canOverrideContributionSpan);
+        assertTrue(isEligible);
+        assertEq(remainingAmountAllowedToContribute, 1000);
 
         vm.warp(_defaultRoundParams.roundStart + 1);
 
@@ -2506,76 +2502,321 @@ contract LM_PC_FundingPot_v1_Test is ModuleTest {
         assertEq(fundingPot.exposed_getTotalRoundContributions(round2Id), 700);
     }
 
-    /* Test Close Round
-    └── Given a round
-        └── When the round is not closed
-            └── And the closure conditions are not met
-                └── When the user attempts to close the round
-                    └── Then the transaction should revert
-    */
-    function testCloseRound_revertsGivenClosureConditionsNotMet() public {
-        uint64 roundId = fundingPot.createRound(
-            _defaultRoundParams.roundStart,
-            _defaultRoundParams.roundEnd,
-            _defaultRoundParams.roundCap,
-            _defaultRoundParams.hookContract,
-            _defaultRoundParams.hookFunction,
-            _defaultRoundParams.autoClosure,
-            _defaultRoundParams.globalAccumulativeCaps
-        );
+    // -------------------------------------------------------------------------
+    // Test: closeRound()
 
-        vm.warp(_defaultRoundParams.roundStart);
+    /*
+    ├── Given user does not have FUNDING_POT_ADMIN_ROLE
+    │   └── When user attempts to close a round
+    │       └── Then it should revert with Module__CallerNotAuthorized
+    │
+    ├── Given round does not exist
+    │   └── When user attempts to close the round
+    │       └── Then it should revert with Module__LM_PC_FundingPot__RoundNotCreated
+    │
+    ├── Given round is already closed
+    │   └── When user attempts to close the round again
+    │       └── Then it should revert with Module__LM_PC_FundingPot__RoundHasEnded
+    │
+    ├── Given round has started but not ended
+    │   └── And round cap has not been reached
+    │   └── And user has contributed successfully
+    │   └── When user attempts to close the round
+    │       └── Then it should not revert and round should be closed
+    │       └── And payment orders should be created correctly
+    │
+    ├── Given round has ended (by time)
+    │   └── And user has contributed during active round
+    │   └── When user attempts to close the round
+    │       └── Then it should not revert and round should be closed
+    │       └── And payment orders should be created correctly
+    │
+    ├── Given round cap has been reached
+    │   └── And user has contributed up to the cap
+    │   └── When user attempts to close the round
+    │       └── Then it should not revert and round should be closed
+    │       └── And payment orders should be created correctly
+    -── Given round cap has been reached
+    │   └── And the round is set up for autoclosure
+    │   └── And user has contributed up to the cap
+    │       └── Then it should not revert and round should be closed
+    │       └── And payment orders should be created correctly
+    └── Given multiple users contributed before round ended or cap reached
+        └── When round is closed
+            └── Then it should not revert and round should be closed
+            └── And payment orders should be created for all contributors
+    */
+    function testCloseRound_revertsGivenUserIsNotFundingPotAdmin(address user_)
+        public
+    {
+        vm.assume(user_ != address(0) && user_ != address(this));
+
+        testCreateRound();
+        uint64 roundId = fundingPot.getRoundCount();
+
+        vm.startPrank(user_);
+        bytes32 roleId = _authorizer.generateRoleId(
+            address(fundingPot), fundingPot.FUNDING_POT_ADMIN_ROLE()
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IModule_v1.Module__CallerNotAuthorized.selector, roleId, user_
+            )
+        );
+        fundingPot.closeRound(roundId);
+        vm.stopPrank();
+    }
+
+    function testCloseRound_revertsGivenRoundDoesNotExist() public {
+        uint64 nonExistentRoundId = 999;
 
         vm.expectRevert(
-            ILM_PC_FundingPot_v1
-                .Module__LM_PC_FundingPot__ClosureConditionsNotMet
-                .selector
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__RoundNotCreated
+                    .selector
+            )
+        );
+        fundingPot.closeRound(nonExistentRoundId);
+    }
+
+    function testCloseRound_revertsGivenRoundIsAlreadyClosed() public {
+        testCloseRound_worksGivenRoundCapHasBeenReached();
+        // Try to close it again
+        uint64 roundId = fundingPot.getRoundCount();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ILM_PC_FundingPot_v1
+                    .Module__LM_PC_FundingPot__RoundHasEnded
+                    .selector
+            )
         );
         fundingPot.closeRound(roundId);
     }
 
-    function testCloseRound_revertsGivenFailingHookExecution() public {
-        MockFailingHookContract mockHook = new MockFailingHookContract();
-        _defaultRoundParams.hookContract = address(mockHook);
-        _defaultRoundParams.hookFunction =
-            abi.encodeWithSignature("executeHook()");
+    function testCloseRound_worksGivenRoundHasStartedButNotEnded() public {
+        testCreateRound();
+        uint64 roundId = fundingPot.getRoundCount();
 
-        uint64 roundId = fundingPot.createRound(
-            _defaultRoundParams.roundStart,
-            _defaultRoundParams.roundEnd,
-            _defaultRoundParams.roundCap,
-            _defaultRoundParams.hookContract,
-            _defaultRoundParams.hookFunction,
-            _defaultRoundParams.autoClosure,
-            _defaultRoundParams.globalAccumulativeCaps
-        );
+        uint8 accessId = 1;
+        (
+            address nftContract,
+            bytes32 merkleRoot,
+            address[] memory allowedAddresses
+        ) = _helper_createAccessCriteria(accessId, roundId);
 
         fundingPot.setAccessCriteriaForRound(
-            roundId,
-            uint8(ILM_PC_FundingPot_v1.AccessCriteriaType.OPEN),
-            address(0),
-            bytes32(0),
-            new address[](0)
+            roundId, accessId, nftContract, merkleRoot, allowedAddresses
+        );
+        fundingPot.setAccessCriteriaPrivileges(
+            roundId, accessId, 1000, false, 0, 0, 0
+        );
+
+        // Warp to round start
+        (uint roundStart,,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+        vm.warp(roundStart + 1);
+
+        // Make a contribution
+        vm.startPrank(contributor1_);
+        _token.approve(address(fundingPot), 1000);
+        fundingPot.contributeToRound(roundId, 1000, accessId, new bytes32[](0));
+        vm.stopPrank();
+
+        // Close the round
+        fundingPot.closeRound(roundId);
+
+        // Verify round is closed
+        assertEq(fundingPot.isRoundClosed(roundId), true);
+
+        // Verify payment orders
+        IERC20PaymentClientBase_v2.PaymentOrder[] memory orders =
+            fundingPot.paymentOrders();
+        assertEq(orders.length, 1);
+        assertEq(orders[0].amount, 1000);
+    }
+
+    function testCloseRound_worksGivenRoundHasEnded() public {
+        testCreateRound();
+        uint64 roundId = fundingPot.getRoundCount();
+
+        uint8 accessId = 1;
+        (
+            address nftContract,
+            bytes32 merkleRoot,
+            address[] memory allowedAddresses
+        ) = _helper_createAccessCriteria(accessId, roundId);
+
+        fundingPot.setAccessCriteriaForRound(
+            roundId, accessId, nftContract, merkleRoot, allowedAddresses
+        );
+        fundingPot.setAccessCriteriaPrivileges(
+            roundId, accessId, 1000, false, 0, 0, 0
+        );
+
+        // Make a contribution
+        (uint roundStart, uint roundEnd,,,,,) =
+            fundingPot.getRoundGenericParameters(roundId);
+        vm.warp(roundStart + 1);
+
+        vm.startPrank(contributor1_);
+        _token.approve(address(fundingPot), 500);
+        fundingPot.contributeToRound(roundId, 500, accessId, new bytes32[](0));
+        vm.stopPrank();
+
+        // Warp to after round end
+        vm.warp(roundEnd + 1);
+
+        // Close the round
+        fundingPot.closeRound(roundId);
+
+        // Verify round is closed
+        assertEq(fundingPot.isRoundClosed(roundId), true);
+
+        // Verify payment orders
+        IERC20PaymentClientBase_v2.PaymentOrder[] memory orders =
+            fundingPot.paymentOrders();
+        assertEq(orders.length, 1);
+        assertEq(orders[0].amount, 500);
+    }
+
+    function testCloseRound_worksGivenRoundCapHasBeenReached() public {
+        testCreateRound();
+
+        uint64 roundId = fundingPot.getRoundCount();
+        uint8 accessId = 2;
+        uint amount = 1000;
+
+        (
+            address nftContract,
+            bytes32 merkleRoot,
+            address[] memory allowedAddresses
+        ) = _helper_createAccessCriteria(accessId, roundId);
+
+        fundingPot.setAccessCriteriaForRound(
+            roundId, accessId, nftContract, merkleRoot, allowedAddresses
+        );
+        fundingPot.setAccessCriteriaPrivileges(
+            roundId, accessId, 1000, false, 0, 0, 0
+        );
+
+        mockNFTContract.mint(contributor1_);
+
+        (uint roundStart,,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+        vm.warp(roundStart + 1);
+
+        // Approve
+        vm.prank(contributor1_);
+        _token.approve(address(fundingPot), 1000);
+
+        vm.prank(contributor1_);
+        fundingPot.contributeToRound(
+            roundId, amount, accessId, new bytes32[](0)
+        );
+
+        assertEq(fundingPot.isRoundClosed(roundId), false);
+        fundingPot.closeRound(roundId);
+        assertEq(fundingPot.isRoundClosed(roundId), true);
+
+        // Get the payment orders and store them in a variable
+        IERC20PaymentClientBase_v2.PaymentOrder[] memory orders =
+            fundingPot.paymentOrders();
+
+        assertEq(orders.length, 1);
+    }
+
+    function testCloseRound_worksGivenRoundisAutoClosure() public {
+        testEditRound();
+
+        uint64 roundId = fundingPot.getRoundCount();
+        uint8 accessId = 2;
+        uint amount = 2000;
+
+        (
+            address nftContract,
+            bytes32 merkleRoot,
+            address[] memory allowedAddresses
+        ) = _helper_createAccessCriteria(accessId, roundId);
+
+        fundingPot.setAccessCriteriaForRound(
+            roundId, accessId, nftContract, merkleRoot, allowedAddresses
         );
 
         fundingPot.setAccessCriteriaPrivileges(
-            roundId,
-            uint8(ILM_PC_FundingPot_v1.AccessCriteriaType.OPEN),
-            1000,
-            false,
-            0,
-            0,
-            0
+            roundId, accessId, 2000, false, 0, 0, 0
+        );
+        mockNFTContract.mint(contributor1_);
+
+        (uint roundStart,,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+        vm.warp(roundStart + 1);
+
+        // Approve
+        vm.prank(contributor1_);
+        _token.approve(address(fundingPot), 2000);
+
+        vm.prank(contributor1_);
+        fundingPot.contributeToRound(
+            roundId, amount, accessId, new bytes32[](0)
         );
 
-        vm.warp(_defaultRoundParams.roundEnd);
+        assertEq(fundingPot.isRoundClosed(roundId), true);
 
-        vm.expectRevert(
-            ILM_PC_FundingPot_v1
-                .Module__LM_PC_FundingPot__HookExecutionFailed
-                .selector
+        // Get the payment orders and store them in a variable
+        IERC20PaymentClientBase_v2.PaymentOrder[] memory orders =
+            fundingPot.paymentOrders();
+
+        assertEq(orders.length, 1);
+    }
+
+    function testCloseRound_worksWithMultipleContributors() public {
+        testCreateRound();
+        uint64 roundId = fundingPot.getRoundCount();
+
+        // Set up access criteria
+        uint8 accessId = 1;
+        (
+            address nftContract,
+            bytes32 merkleRoot,
+            address[] memory allowedAddresses
+        ) = _helper_createAccessCriteria(accessId, roundId);
+
+        fundingPot.setAccessCriteriaForRound(
+            roundId, accessId, nftContract, merkleRoot, allowedAddresses
         );
+        fundingPot.setAccessCriteriaPrivileges(
+            roundId, accessId, 1000, false, 0, 0, 0
+        );
+
+        // Warp to round start
+        (uint roundStart,,,,,,) = fundingPot.getRoundGenericParameters(roundId);
+        vm.warp(roundStart + 1);
+
+        // Multiple contributors
+        vm.startPrank(contributor1_);
+        _token.approve(address(fundingPot), 500);
+        fundingPot.contributeToRound(roundId, 500, accessId, new bytes32[](0));
+        vm.stopPrank();
+
+        vm.startPrank(contributor2_);
+        _token.approve(address(fundingPot), 200);
+        fundingPot.contributeToRound(roundId, 200, accessId, new bytes32[](0));
+        vm.stopPrank();
+
+        vm.startPrank(contributor3_);
+        _token.approve(address(fundingPot), 300);
+        fundingPot.contributeToRound(roundId, 300, accessId, new bytes32[](0));
+        vm.stopPrank();
+
+        // Close the round
         fundingPot.closeRound(roundId);
+
+        // Verify round is closed
+        assertEq(fundingPot.isRoundClosed(roundId), true);
+
+        // Verify payment orders
+        IERC20PaymentClientBase_v2.PaymentOrder[] memory orders =
+            fundingPot.paymentOrders();
+        assertEq(orders.length, 3);
     }
 
     // -------------------------------------------------------------------------
