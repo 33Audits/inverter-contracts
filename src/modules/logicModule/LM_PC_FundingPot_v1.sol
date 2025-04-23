@@ -443,6 +443,10 @@ contract LM_PC_FundingPot_v1 is
     ) external onlyModuleRole(FUNDING_POT_ADMIN_ROLE) {
         Round storage round = rounds[roundId_];
 
+        if (accessCriteriaId_ > MAX_ACCESS_CRITERIA_ID) {
+            revert Module__LM_PC_FundingPot__InvalidAccessCriteriaId();
+        }
+
         _validateEditRoundParameters(round);
 
         if (
@@ -948,8 +952,6 @@ contract LM_PC_FundingPot_v1 is
         view
         returns (uint unusedCapacityFromPrevious)
     {
-        unusedCapacityFromPrevious = 0;
-        // Iterate through all previous rounds (1 to roundId_-1)
         for (uint64 i = 1; i < roundId_; ++i) {
             Round storage prevRound = rounds[i];
             if (!prevRound.globalAccumulativeCaps) continue;
@@ -1072,6 +1074,7 @@ contract LM_PC_FundingPot_v1 is
                 address(__Module_orchestrator.fundingManager())
             ).getIssuanceToken()
         );
+        // address issuanceToken = bancorFM.getIssuanceToken();
 
         for (uint i = 0; i < contributors.length; i++) {
             address contributor = contributors[i];
@@ -1096,6 +1099,7 @@ contract LM_PC_FundingPot_v1 is
                 uint tokensForThisAccessCriteria = (
                     contributionByAccessCriteria * tokensBought
                 ) / totalContributions;
+
 
                 _createAndAddPaymentOrder(
                     roundId_,
@@ -1208,6 +1212,7 @@ contract LM_PC_FundingPot_v1 is
             end
         );
     }
+
 
     function _buyBondingCurveToken(uint64 roundId_) internal {
         uint totalContributions = _getTotalRoundContribution(roundId_);

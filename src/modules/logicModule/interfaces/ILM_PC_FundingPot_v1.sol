@@ -65,22 +65,6 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
         bytes32[] merkleProof;
     }
 
-    /// @notice Struct to represent a user's complete eligibility information for a round
-    /// @param  isEligible Whether the user is eligible for the round through any criteria
-    /// @param  isNftHolder Whether the user is eligible through NFT holding
-    /// @param  isInMerkleTree Whether the user is eligible through Merkle proof
-    /// @param  isInAllowlist Whether the user is eligible through allowlist
-    /// @param  highestPersonalCap The highest personal cap the user can access
-    /// @param  canOverrideContributionSpan Whether the user has any criteria that can override contribution span
-    struct RoundUserEligibility {
-        bool isEligible;
-        bool isNftHolder;
-        bool isInMerkleTree;
-        bool isInAllowlist;
-        uint highestPersonalCap;
-        bool canOverrideContributionSpan;
-    }
-
     // -------------------------------------------------------------------------
     // Enums
 
