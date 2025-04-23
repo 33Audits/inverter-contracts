@@ -16,8 +16,6 @@ import {
 } from "@lm/abstracts/ERC20PaymentClientBase_v2.sol";
 import {IBondingCurveBase_v1} from
     "@fm/bondingCurve/interfaces/IBondingCurveBase_v1.sol";
-import {FM_BC_Bancor_Redeeming_VirtualSupply_v1} from
-    "src/modules/fundingManager/bondingCurve/FM_BC_Bancor_Redeeming_VirtualSupply_v1.sol";
 
 // External
 import {IERC20} from "@oz/token/ERC20/IERC20.sol";
@@ -144,9 +142,6 @@ contract LM_PC_FundingPot_v1 is
     mapping(uint64 => mapping(address => mapping(uint8 => uint))) private
         roundIdTouserContributionsByAccessCriteria;
 
-    /// @notice Bancor Bonding Curve Funding Manager
-    FM_BC_Bancor_Redeeming_VirtualSupply_v1 bancorFM;
-
     /// @notice The current round count.
     uint64 private roundCount;
 
@@ -178,9 +173,6 @@ contract LM_PC_FundingPot_v1 is
         flags |= bytes32(1 << FLAG_END);
 
         __ERC20PaymentClientBase_v2_init(flags);
-
-        address bancorFMaddress = abi.decode(configData_, (address));
-        bancorFM = FM_BC_Bancor_Redeeming_VirtualSupply_v1(bancorFMaddress);
     }
 
     // -------------------------------------------------------------------------
@@ -1217,8 +1209,6 @@ contract LM_PC_FundingPot_v1 is
                 address(__Module_orchestrator.fundingManager())
             ).getIssuanceToken()
         );
-
-        //address issuanceToken = bancorFM.getIssuanceToken();
 
         uint balanceBefore = IERC20(issuanceToken).balanceOf(address(this));
         IBondingCurveBase_v1(issuanceToken).buyFor(

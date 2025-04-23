@@ -13,6 +13,8 @@ import {
     LM_PC_FundingPot_v1,
     ILM_PC_FundingPot_v1
 } from "@lm/LM_PC_FundingPot_v1.sol";
+import {IERC20PaymentClientBase_v2} from
+    "test/utils/mocks/modules/paymentClient/ERC20PaymentClientBaseV2Mock.sol";
 import {
     FM_BC_Bancor_Redeeming_VirtualSupply_v1,
     IFM_BC_Bancor_Redeeming_VirtualSupply_v1
@@ -28,7 +30,8 @@ import {ERC165Upgradeable} from
 import {ERC20Mock} from "test/utils/mocks/ERC20Mock.sol";
 import {SafeERC20} from "@oz/token/ERC20/utils/SafeERC20.sol";
 import {ERC20Issuance_v1} from "@ex/token/ERC20Issuance_v1.sol";
-
+import {LM_PC_FundingPot_v1ERC20Mock} from
+    "test/utils/mocks/modules/logicModules/LM_PC_FundingPot_v1ERC20Mock.sol";
 import {console2} from "forge-std/console2.sol";
 
 contract FundingPotE2E is E2ETest {
@@ -39,7 +42,8 @@ contract FundingPotE2E is E2ETest {
     address contributor1 = makeAddr("contributor 1");
     address contributor2 = makeAddr("contributor 2");
     address contributor3 = makeAddr("contributor 3");
-    ERC20Issuance_v1 issuanceToken;
+    //ERC20Issuance_v1 issuanceToken; // @note: not required since using our own mock token instead of ERC20Issuance_v1
+    LM_PC_FundingPot_v1ERC20Mock issuanceToken;
     LM_PC_Bounties_v2 bountyManager;
     IOrchestrator_v1 orchestrator;
     IFM_BC_Bancor_Redeeming_VirtualSupply_v1 bondingCurveFundingManager;
@@ -67,9 +71,12 @@ contract FundingPotE2E is E2ETest {
         //      moduleConfigurations[2]  => PaymentProcessor
         //      moduleConfigurations[3:] => Additional Logic Modules
 
-        issuanceToken = new ERC20Issuance_v1(
-            "Bonding Curve Token", "BCT", 18, type(uint).max - 1, address(this)
-        );
+        // issuanceToken = new ERC20Issuance_v1(
+        //     "Bonding Curve Token", "BCT", 18, type(uint).max - 1, address(this)
+        // ); // @note: not required since using our own mock token instead of ERC20Issuance_v1
+
+        issuanceToken =
+            new LM_PC_FundingPot_v1ERC20Mock("Bonding Curve Token", "BCT");
 
         IFM_BC_Bancor_Redeeming_VirtualSupply_v1.BondingCurveProperties memory
             bc_properties = IFM_BC_Bancor_Redeeming_VirtualSupply_v1
@@ -160,7 +167,7 @@ contract FundingPotE2E is E2ETest {
         }
 
         // Set up the bonding curve
-        issuanceToken.setMinter(address(bondingCurveFundingManager), true);
+        //issuanceToken.setMinter(address(bondingCurveFundingManager), true);
     }
 
     function test_e2e_FundingPotLifecycle() public {
@@ -243,18 +250,6 @@ contract FundingPotE2E is E2ETest {
         contributionToken.mint(contributor2, 500e18);
         contributionToken.mint(contributor3, 1000e18);
 
-        // // Contributors approve funding pot
-        // vm.prank(contributor1);
-        // contributionToken.approve(address(fundingPot), 500e18);
-        // vm.prank(contributor2);
-        // contributionToken.approve(address(fundingPot), 500e18);
-        // vm.prank(contributor3);
-        // contributionToken.approve(address(fundingPot), 1000e18);
-
-        // // Contributors contribute to rounds
-        // vm.prank(contributor1);
-        // fundingPot.contributeToRound(round1Id, 1e18, 0, new bytes32[](0));
-
         vm.startPrank(contributor1);
         contributionToken.approve(address(fundingPot), 500e18);
         fundingPot.contributeToRound(round1Id, 500e18, 0, new bytes32[](0));
@@ -273,22 +268,18 @@ contract FundingPotE2E is E2ETest {
         // Fast forward to after rounds end
         vm.warp(block.timestamp + 32 days);
 
-        console2.log("closeRound: ", fundingPot.isRoundClosed(round1Id));
         fundingPot.closeRound(round1Id);
-        console2.log("closeRound: ", fundingPot.isRoundClosed(round1Id));
+        assertEq(fundingPot.isRoundClosed(round1Id), true);
 
-        // //// TODO: Zuhaib
-        // //// rebase onto your other branch
-        // //// first get this to compile
-        // /// once it compiles we shoule be able to check that the PP streaming has a order created
-        // /// for contributor1
-        // /// We should then be able to process payments
-        // /// and these tokesn will get sent to contributor1
+        IERC20PaymentClientBase_v2.PaymentOrder[] memory orders =
+            fundingPot.paymentOrders();
+        console2.log("orders: ", orders.length);
+        // @note: Lee I can view the orders created here!
 
         // /// Assert a payment order was created
-        // PP_Streaming_v2.Stream[] memory streams = paymentProcessor
-        //     .viewAllPaymentOrders(address(fundingPot), contributor1);
-        // assertEq(streams.length, 1);
+        PP_Streaming_v2.Stream[] memory streams = paymentProcessor
+            .viewAllPaymentOrders(address(fundingPot), contributor1);
+        //assertEq(streams.length, 1);
 
         // // Verify tokens were minted from curve
         // uint totalContributions = 1500e18; // 300 + 200 + 1000
