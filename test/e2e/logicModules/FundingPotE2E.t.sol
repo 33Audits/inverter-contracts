@@ -189,7 +189,17 @@ contract FundingPotE2E is E2ETest {
             false, // auto closure
             false // no global caps
         );
-        vm.warp(block.timestamp + 1 days);
+
+        // Round 2
+        uint64 round2Id = fundingPot.createRound(
+            block.timestamp + 1, // start
+            block.timestamp + 60 days, // end
+            750e18, // cap
+            address(0), // no hook
+            bytes(""), // no hook function
+            true, // auto closure
+            false // no global caps
+        );
 
         // Add access criteria to round 1
         address[] memory allowedAddresses = new address[](2);
@@ -204,17 +214,6 @@ contract FundingPotE2E is E2ETest {
             allowedAddresses
         );
 
-        // Round 2
-        uint64 round2Id = fundingPot.createRound(
-            block.timestamp + 1, // start
-            block.timestamp + 60 days, // end
-            2e18, // cap
-            address(0), // no hook
-            bytes(""), // no hook function
-            false, // auto closure
-            false // no global caps
-        );
-
         // Add access criteria to round 2
         allowedAddresses = new address[](1);
         allowedAddresses[0] = contributor3;
@@ -226,24 +225,28 @@ contract FundingPotE2E is E2ETest {
             bytes32(0),
             allowedAddresses
         );
+
         fundingPot.setAccessCriteriaPrivileges(
             round1Id,
             0, // accessCriteriaId
-            1_000_000_000_000_000_000, // personalCap
+            500e18, // personalCap
             true, // overrideContributionSpan
-            10, // start
+            block.timestamp, // start
             0, // cliff
-            30 // end
+            block.timestamp + 60 days // end
         );
+
         fundingPot.setAccessCriteriaPrivileges(
             round2Id,
             0, // accessCriteriaId
-            1_000_000_000_000_000_000, // personalCap
+            750e18, // personalCap
             true, // overrideContributionSpan
-            10, // start
+            block.timestamp, // start
             0, // cliff
-            30 // end
+            block.timestamp + 60 days // end
         );
+
+        vm.warp(block.timestamp + 1 days);
 
         // Fund contributors
         contributionToken.mint(contributor1, 500e18);
@@ -261,8 +264,8 @@ contract FundingPotE2E is E2ETest {
         vm.stopPrank();
 
         vm.startPrank(contributor3);
-        contributionToken.approve(address(fundingPot), 1000e18);
-        fundingPot.contributeToRound(round1Id, 1000e18, 0, new bytes32[](0));
+        contributionToken.approve(address(fundingPot), 750e18);
+        fundingPot.contributeToRound(round2Id, 750e18, 0, new bytes32[](0));
         vm.stopPrank();
 
         // Fast forward to after rounds end
@@ -270,18 +273,21 @@ contract FundingPotE2E is E2ETest {
 
         fundingPot.closeRound(round1Id);
         assertEq(fundingPot.isRoundClosed(round1Id), true);
+        assertEq(fundingPot.isRoundClosed(round2Id), true);
+        assertEq(contributionToken.balanceOf(address(fundingPot)), 0);
+        assertGt(issuanceToken.balanceOf(address(fundingPot)), 0);
 
         IERC20PaymentClientBase_v2.PaymentOrder[] memory orders =
             fundingPot.paymentOrders();
-        console2.log("orders: ", orders.length);
+        //console2.log("orders: ", orders.length);
         // @note: Lee I can view the orders created here!
 
         // /// Assert a payment order was created
-        PP_Streaming_v2.Stream[] memory streams = paymentProcessor
-            .viewAllPaymentOrders(address(fundingPot), contributor1);
-        //assertEq(streams.length, 1);
+        // PP_Streaming_v2.Stream[] memory streams = paymentProcessor
+        //     .viewAllPaymentOrders(address(fundingPot), contributor1);
+        // //assertEq(streams.length, 1);
 
-        // // Verify tokens were minted from curve
         // uint totalContributions = 1500e18; // 300 + 200 + 1000
+        // // Verify tokens were minted from curve
     }
 }

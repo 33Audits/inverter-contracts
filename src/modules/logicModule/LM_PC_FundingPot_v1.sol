@@ -1211,9 +1211,12 @@ contract LM_PC_FundingPot_v1 is
         );
 
         uint balanceBefore = IERC20(issuanceToken).balanceOf(address(this));
-        IBondingCurveBase_v1(issuanceToken).buyFor(
-            address(this), totalContributions, 0
+        // approve the fundingManager to spend the contribution token
+        IERC20(__Module_orchestrator.fundingManager().token()).approve(
+            address(__Module_orchestrator.fundingManager()), totalContributions
         );
+        IBondingCurveBase_v1(address(__Module_orchestrator.fundingManager()))
+            .buyFor(address(this), totalContributions, 1);
         uint balanceAfter = IERC20(issuanceToken).balanceOf(address(this));
 
         uint tokensBought = balanceAfter - balanceBefore;

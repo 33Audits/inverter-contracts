@@ -58,6 +58,11 @@ contract FundingManagerV2Mock is IFundingManager_v1, Module_v1 {
         return address(_bondingToken);
     }
 
+    function buyFor(address to, uint amount, uint minTokens) public {
+        _token.transferFrom(_msgSender(), address(this), amount);
+        _bondingToken.mint(to, amount);
+    }
+
     function deposit(uint amount) external {
         // _token.safeTransferFrom(_msgSender(), address(this), amount);
         _token.transferFrom(_msgSender(), address(this), amount);
