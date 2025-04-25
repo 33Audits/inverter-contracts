@@ -30,8 +30,6 @@ import {ERC165Upgradeable} from
 import {ERC20Mock} from "test/utils/mocks/ERC20Mock.sol";
 import {SafeERC20} from "@oz/token/ERC20/utils/SafeERC20.sol";
 import {ERC20Issuance_v1} from "@ex/token/ERC20Issuance_v1.sol";
-import {LM_PC_FundingPot_v1ERC20Mock} from
-    "test/utils/mocks/modules/logicModules/LM_PC_FundingPot_v1ERC20Mock.sol";
 import {console2} from "forge-std/console2.sol";
 
 contract FundingPotE2E is E2ETest {
@@ -42,8 +40,7 @@ contract FundingPotE2E is E2ETest {
     address contributor1 = makeAddr("contributor 1");
     address contributor2 = makeAddr("contributor 2");
     address contributor3 = makeAddr("contributor 3");
-    //ERC20Issuance_v1 issuanceToken; // @note: not required since using our own mock token instead of ERC20Issuance_v1
-    LM_PC_FundingPot_v1ERC20Mock issuanceToken;
+    ERC20Issuance_v1 issuanceToken;
     LM_PC_Bounties_v2 bountyManager;
     IOrchestrator_v1 orchestrator;
     IFM_BC_Bancor_Redeeming_VirtualSupply_v1 bondingCurveFundingManager;
@@ -71,12 +68,9 @@ contract FundingPotE2E is E2ETest {
         //      moduleConfigurations[2]  => PaymentProcessor
         //      moduleConfigurations[3:] => Additional Logic Modules
 
-        // issuanceToken = new ERC20Issuance_v1(
-        //     "Bonding Curve Token", "BCT", 18, type(uint).max - 1, address(this)
-        // ); // @note: not required since using our own mock token instead of ERC20Issuance_v1
-
-        issuanceToken =
-            new LM_PC_FundingPot_v1ERC20Mock("Bonding Curve Token", "BCT");
+        issuanceToken = new ERC20Issuance_v1(
+            "Bonding Curve Token", "BCT", 18, type(uint).max - 1, address(this)
+        );
 
         IFM_BC_Bancor_Redeeming_VirtualSupply_v1.BondingCurveProperties memory
             bc_properties = IFM_BC_Bancor_Redeeming_VirtualSupply_v1
@@ -167,7 +161,7 @@ contract FundingPotE2E is E2ETest {
         }
 
         // Set up the bonding curve
-        //issuanceToken.setMinter(address(bondingCurveFundingManager), true);
+        issuanceToken.setMinter(address(bondingCurveFundingManager), true);
     }
 
     function test_e2e_FundingPotLifecycle() public {
