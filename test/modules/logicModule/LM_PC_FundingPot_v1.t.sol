@@ -24,8 +24,6 @@ import {
     MockFailingHookContract
 } from "test/utils/mocks/modules/logicModules/LM_PC_FundingPot_v1Mock.sol";
 
-import {LM_PC_FundingPot_v1ERC20Mock} from
-    "test/utils/mocks/modules/logicModules/LM_PC_FundingPot_v1ERC20Mock.sol";
 import {IBondingCurveBase_v1} from
     "@fm/bondingCurve/interfaces/IBondingCurveBase_v1.sol";
 
