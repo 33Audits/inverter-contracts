@@ -4,8 +4,9 @@ pragma solidity 0.8.23;
 // Internal
 import {LM_PC_FundingPot_v1} from
     "src/modules/logicModule/LM_PC_FundingPot_v1.sol";
-
+import {FundingPotLib} from "src/modules/logicModule/lib/FundingPotLib.sol";
 // Access Mock of the LM_PC_FundingPot_v1 contract for Testing.
+
 contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
     // Use the `exposed_` prefix for functions to expose internal functions for
     // testing.
@@ -18,7 +19,7 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
         pure
         returns (bool)
     {
-        return _validTimes(start_, cliff_, end_);
+        return FundingPotLib.validTimes(start_, cliff_, end_);
     }
 
     /**
@@ -66,29 +67,6 @@ contract LM_PC_FundingPot_v1_Exposed is LM_PC_FundingPot_v1 {
         return _checkAccessCriteriaEligibility(
             roundId_, accessCriteriaId_, merkleProof_, user_
         );
-    }
-
-    /**
-     * @notice Exposes the internal _checkNftOwnership function for testing
-     */
-    function exposed_checkNftOwnership(address nftContract_, address user_)
-        external
-        view
-        returns (bool)
-    {
-        return _checkNftOwnership(nftContract_, user_);
-    }
-
-    /**
-     * @notice Exposes the internal _validateMerkleProof function for testing
-     */
-    function exposed_validateMerkleProof(
-        bytes32 root_,
-        bytes32[] memory merkleProof_,
-        address user_,
-        uint32 roundId_
-    ) external pure returns (bool) {
-        return _validateMerkleProof(root_, merkleProof_, user_, roundId_);
     }
 
     /**

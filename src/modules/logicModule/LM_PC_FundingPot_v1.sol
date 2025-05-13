@@ -16,6 +16,7 @@ import {
 } from "@lm/abstracts/ERC20PaymentClientBase_v2.sol";
 import {IBondingCurveBase_v1} from
     "@fm/bondingCurve/interfaces/IBondingCurveBase_v1.sol";
+import {FundingPotLib} from "src/modules/logicModule/lib/FundingPotLib.sol";
 
 // External
 import {IERC20} from "@oz/token/ERC20/IERC20.sol";
@@ -76,6 +77,7 @@ contract LM_PC_FundingPot_v1 is
     // Libraries
 
     using SafeERC20 for IERC20;
+    using FundingPotLib for *;
 
     // -------------------------------------------------------------------------
     // ERC165
@@ -225,29 +227,18 @@ contract LM_PC_FundingPot_v1 is
         AccessCriteria storage accessCriteria =
             round.accessCriterias[accessCriteriaId_];
 
-        if (accessCriteria.accessCriteriaType == AccessCriteriaType.OPEN) {
-            return (
-                true,
-                accessCriteria.nftContract,
-                accessCriteria.merkleRoot,
-                true
-            );
-        } else if (accessCriteria.accessCriteriaType == AccessCriteriaType.LIST)
-        {
-            return (
-                false,
-                accessCriteria.nftContract,
-                accessCriteria.merkleRoot,
-                true
-            );
-        } else {
-            return (
-                false,
-                accessCriteria.nftContract,
-                accessCriteria.merkleRoot,
-                false
-            );
-        }
+        AccessCriteriaType acType = accessCriteria.accessCriteriaType;
+
+        isRoundOpen_ = (acType == AccessCriteriaType.OPEN);
+        isList_ = (
+            acType == AccessCriteriaType.OPEN
+                || acType == AccessCriteriaType.LIST
+        );
+
+        nftContract_ = accessCriteria.nftContract;
+        merkleRoot_ = accessCriteria.merkleRoot;
+
+        return (isRoundOpen_, nftContract_, merkleRoot_, isList_);
     }
 
     /// @inheritdoc ILM_PC_FundingPot_v1
@@ -396,7 +387,7 @@ contract LM_PC_FundingPot_v1 is
         round.autoClosure = autoClosure_;
         round.globalAccumulativeCaps = globalAccumulativeCaps_;
 
-        _validateRoundParameters(round);
+        FundingPotLib.validateRoundParameters(round);
 
         emit RoundCreated(
             roundId,
@@ -425,7 +416,7 @@ contract LM_PC_FundingPot_v1 is
     ) external onlyModuleRole(FUNDING_POT_ADMIN_ROLE) {
         Round storage round = rounds[roundId_];
 
-        _validateEditRoundParameters(round);
+        FundingPotLib.validateEditRoundParameters(round);
 
         round.roundStart = roundStart_;
         round.roundEnd = roundEnd_;
@@ -435,7 +426,7 @@ contract LM_PC_FundingPot_v1 is
         round.autoClosure = autoClosure_;
         round.globalAccumulativeCaps = globalAccumulativeCaps_;
 
-        _validateRoundParameters(round);
+        FundingPotLib.validateRoundParameters(round);
 
         emit RoundEdited(
             roundId_,
@@ -464,7 +455,7 @@ contract LM_PC_FundingPot_v1 is
             revert Module__LM_PC_FundingPot__InvalidAccessCriteriaId();
         }
 
-        _validateEditRoundParameters(round);
+        FundingPotLib.validateEditRoundParameters(round);
 
         uint8 criteriaId;
         bool isEdit = false;
@@ -552,7 +543,7 @@ contract LM_PC_FundingPot_v1 is
             revert Module__LM_PC_FundingPot__InvalidAccessCriteriaId();
         }
 
-        _validateEditRoundParameters(round);
+        FundingPotLib.validateEditRoundParameters(round);
 
         for (uint i = 0; i < addressesToRemove_.length; i++) {
             round.accessCriterias[accessCriteriaId_].allowedAddresses[addressesToRemove_[i]]
@@ -576,9 +567,9 @@ contract LM_PC_FundingPot_v1 is
     ) external onlyModuleRole(FUNDING_POT_ADMIN_ROLE) {
         Round storage round = rounds[roundId_];
 
-        _validateEditRoundParameters(round);
+        FundingPotLib.validateEditRoundParameters(round);
 
-        if (!_validTimes(start_, cliff_, end_)) {
+        if (!FundingPotLib.validTimes(start_, cliff_, end_)) {
             revert Module__LM_PC_FundingPot__InvalidTimes();
         }
 
@@ -636,7 +627,6 @@ contract LM_PC_FundingPot_v1 is
             Round storage prevRound = rounds[roundCap.roundId];
             if (!prevRound.globalAccumulativeCaps) continue;
 
-            // Verify the user was eligible for this access criteria in the previous round
             bool isEligible = _checkAccessCriteriaEligibility(
                 uint32(roundCap.roundId),
                 roundCap.accessCriteriaId,
@@ -746,67 +736,6 @@ contract LM_PC_FundingPot_v1 is
 
     // -------------------------------------------------------------------------
     // Internal
-
-    /// @notice Validates the round parameters.
-    /// @param  round_ The round to validate.
-    /// @dev    Reverts if the round parameters are invalid.
-    function _validateRoundParameters(Round storage round_) internal view {
-        // Validate round start time is in the future
-        // @note: The below condition wont allow _roundStart == block.timestamp
-        if (round_.roundStart <= block.timestamp) {
-            revert Module__LM_PC_FundingPot__RoundStartMustBeInFuture();
-        }
-
-        // Validate that either end time or cap is set
-        if (round_.roundEnd == 0 && round_.roundCap == 0) {
-            revert Module__LM_PC_FundingPot__RoundMustHaveEndTimeOrCap();
-        }
-
-        // If end time is set, validate it's after start time
-        if (round_.roundEnd > 0 && round_.roundEnd < round_.roundStart) {
-            revert Module__LM_PC_FundingPot__RoundEndMustBeAfterStart();
-        }
-
-        // Validate hook contract and function consistency
-        if (
-            round_.hookContract != address(0) && round_.hookFunction.length == 0
-        ) {
-            revert
-                Module__LM_PC_FundingPot__HookFunctionRequiredWithHookContract();
-        }
-
-        if (round_.hookContract == address(0) && round_.hookFunction.length > 0)
-        {
-            revert
-                Module__LM_PC_FundingPot__HookContractRequiredWithHookFunction();
-        }
-    }
-
-    /// @notice Validates the round parameters before editing.
-    /// @param  round_ The round to validate.
-    /// @dev    Reverts if the round parameters are invalid.
-    function _validateEditRoundParameters(Round storage round_) internal view {
-        if (round_.roundEnd == 0 && round_.roundCap == 0) {
-            revert Module__LM_PC_FundingPot__RoundNotCreated();
-        }
-
-        if (block.timestamp > round_.roundStart) {
-            revert Module__LM_PC_FundingPot__RoundAlreadyStarted();
-        }
-    }
-
-    /// @dev    Validate uint start input.
-    /// @param  start_ uint to validate.
-    /// @param  cliff_ uint to validate.
-    /// @param  end_ uint to validate.
-    /// @return True if uint is valid.
-    function _validTimes(uint start_, uint cliff_, uint end_)
-        internal
-        pure
-        returns (bool)
-    {
-        return start_ + cliff_ <= end_;
-    }
 
     /// @notice Contributes to a round with unused capacity from previous rounds.
     /// @param roundId_ The ID of the round to contribute to.
@@ -944,6 +873,8 @@ contract LM_PC_FundingPot_v1 is
         adjustedAmount = amount_;
 
         Round storage round = rounds[roundId_];
+        // Read globalAccumulativeCaps once into a local variable
+        bool globalCapsEnabled = round.globalAccumulativeCaps;
 
         if (!canOverrideContributionSpan_ && round.roundCap > 0) {
             uint totalRoundContribution = roundIdToTotalContributions[roundId_];
@@ -951,7 +882,7 @@ contract LM_PC_FundingPot_v1 is
 
             // If global accumulative caps are enabled,
             // adjust the round cap to acommodate unused capacity from previous rounds
-            if (round.globalAccumulativeCaps) {
+            if (globalCapsEnabled) {
                 uint unusedCapacityFromPrevious =
                     _calculateUnusedCapacityFromPreviousRounds(roundId_);
                 effectiveRoundCap += unusedCapacityFromPrevious;
@@ -978,7 +909,7 @@ contract LM_PC_FundingPot_v1 is
         uint userPersonalCap = privileges.personalCap;
 
         // Add unspent capacity if global accumulative caps are enabled
-        if (round.globalAccumulativeCaps) {
+        if (globalCapsEnabled) {
             userPersonalCap += unspentPersonalCap_;
         }
 
@@ -1010,23 +941,15 @@ contract LM_PC_FundingPot_v1 is
         AccessCriteria storage accessCriteria =
             round.accessCriterias[accessCriteriaId_];
 
-        if (accessCriteria.accessCriteriaType == AccessCriteriaType.OPEN) {
-            isEligible = true;
-        }
-        if (accessCriteria.accessCriteriaType == AccessCriteriaType.NFT) {
-            isEligible = _checkNftOwnership(accessCriteria.nftContract, user_);
-        } else if (
-            accessCriteria.accessCriteriaType == AccessCriteriaType.MERKLE
-        ) {
-            isEligible = _validateMerkleProof(
-                accessCriteria.merkleRoot, merkleProof_, user_, roundId_
-            );
-        } else if (accessCriteria.accessCriteriaType == AccessCriteriaType.LIST)
-        {
-            isEligible = accessCriteria.allowedAddresses[user_];
-        }
-
-        return isEligible;
+        return FundingPotLib.checkAccessCriteriaEligibility(
+            uint8(accessCriteria.accessCriteriaType),
+            accessCriteria.nftContract,
+            accessCriteria.merkleRoot,
+            merkleProof_,
+            accessCriteria.allowedAddresses,
+            user_,
+            roundId_
+        );
     }
 
     /// @notice Calculates unused capacity from previous rounds.
@@ -1049,52 +972,6 @@ contract LM_PC_FundingPot_v1 is
             }
         }
         return unusedCapacityFromPrevious;
-    }
-
-    /// @notice Verifies NFT ownership for access control.
-    /// @dev    Safely checks the NFT balance of a user using a try-catch block.
-    /// @param  nftContract_ Address of the NFT contract.
-    /// @param  user_ Address of the user to check for NFT ownership.
-    /// @return Boolean indicating whether the user owns an NFT.
-    function _checkNftOwnership(address nftContract_, address user_)
-        internal
-        view
-        returns (bool)
-    {
-        if (nftContract_ == address(0) || user_ == address(0)) {
-            return false;
-        }
-
-        try IERC721(nftContract_).balanceOf(user_) returns (uint balance) {
-            if (balance == 0) {
-                return false;
-            }
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    /// @notice Verifies a Merkle p roof for access control.
-    /// @dev    Validates that the user's address is part of the Merkle tree.
-    /// @param  root_ The Merkle root to validate against.
-    /// @param  user_ The address of the user to check.
-    /// @param  roundId_ The ID of the round to check.
-    /// @param  merkleProof_ The Merkle proof to verify.
-    /// @return Boolean indicating whether the proof is valid.
-    function _validateMerkleProof(
-        bytes32 root_,
-        bytes32[] memory merkleProof_,
-        address user_,
-        uint32 roundId_
-    ) internal pure returns (bool) {
-        bytes32 leaf = keccak256(abi.encodePacked(user_, roundId_));
-
-        if (!MerkleProof.verify(merkleProof_, root_, leaf)) {
-            return false;
-        }
-
-        return true;
     }
 
     /// @notice Handles round closure logic.
@@ -1184,51 +1061,6 @@ contract LM_PC_FundingPot_v1 is
         emit ContributorBatchProcessed(roundId_, startIndex_, endIndex);
     }
 
-    /// @notice Creates time parameter data for a payment order.
-    /// @dev    Sets default values for start, cliff, and end if they are zero.
-    /// @param  start_ The start time of the payment order.
-    /// @param  cliff_ The cliff time of the payment order.
-    /// @param  end_ The end time of the payment order.
-    /// @return flags The flags for the payment order.
-    /// @return finalData The final data for the payment order.
-    function _createTimeParameterData(uint start_, uint cliff_, uint end_)
-        internal
-        view
-        returns (bytes32 flags, bytes32[] memory finalData)
-    {
-        if (start_ == 0) start_ = block.timestamp;
-        if (end_ == 0) end_ = block.timestamp;
-
-        flags = 0;
-        bytes32[] memory data = new bytes32[](3); // For start, cliff, and end
-        uint8 flagCount = 0;
-
-        if (start_ > 0) {
-            flags |= bytes32(uint(1) << FLAG_START);
-            data[flagCount] = bytes32(start_);
-            flagCount++;
-        }
-
-        if (cliff_ > 0) {
-            flags |= bytes32(uint(1) << FLAG_CLIFF);
-            data[flagCount] = bytes32(cliff_);
-            flagCount++;
-        }
-
-        if (end_ > 0) {
-            flags |= bytes32(uint(1) << FLAG_END);
-            data[flagCount] = bytes32(end_);
-            flagCount++;
-        }
-
-        finalData = new bytes32[](flagCount);
-        for (uint8 j = 0; j < flagCount; j++) {
-            finalData[j] = data[j];
-        }
-
-        return (flags, finalData);
-    }
-
     /// @notice Creates and adds a payment order for a contributor.
     /// @dev    Sets default values for start, cliff, and end if they are zero.
     /// @param  roundId_ The ID of the round to create the payment order for.
@@ -1251,7 +1083,7 @@ contract LM_PC_FundingPot_v1 is
         uint end = privileges.end;
 
         (bytes32 flags, bytes32[] memory finalData) =
-            _createTimeParameterData(start, cliff, end);
+            FundingPotLib.createTimeParameterData(start, cliff, end);
 
         IERC20PaymentClientBase_v2.PaymentOrder memory paymentOrder =
         IERC20PaymentClientBase_v2.PaymentOrder({
@@ -1305,9 +1137,8 @@ contract LM_PC_FundingPot_v1 is
     {
         Round storage round = rounds[roundId_];
         uint totalContribution = roundIdToTotalContributions[roundId_];
-        bool capReached =
-            round.roundCap > 0 && totalContribution == round.roundCap;
-        bool timeEnded = round.roundEnd > 0 && block.timestamp >= round.roundEnd;
-        return capReached || timeEnded;
+        return FundingPotLib.checkRoundClosureConditions(
+            round.roundEnd, round.roundCap, totalContribution
+        );
     }
 }

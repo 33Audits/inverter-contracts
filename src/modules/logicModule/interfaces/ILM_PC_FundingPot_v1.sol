@@ -108,7 +108,7 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @param  autoClosure_ A boolean indicating whether a specific closure mechanism is enabled.
     /// @param  globalAccumulativeCaps_ A boolean indicating whether global accumulative caps are enforced.
     event RoundCreated(
-        uint indexed roundId_,
+        uint32 indexed roundId_,
         uint roundStart_,
         uint roundEnd_,
         uint roundCap_,
@@ -129,7 +129,7 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @param  autoClosure_ A boolean indicating whether a specific closure mechanism is enabled.
     /// @param  globalAccumulativeCaps_ A boolean indicating whether global accumulative caps are enforced.
     event RoundEdited(
-        uint indexed roundId_,
+        uint32 indexed roundId_,
         uint roundStart_,
         uint roundEnd_,
         uint roundCap_,
