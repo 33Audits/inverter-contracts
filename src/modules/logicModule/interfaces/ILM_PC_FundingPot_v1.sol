@@ -139,16 +139,12 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
         bool globalAccumulativeCaps_
     );
 
-    /// @notice Emitted when access criteria is set for a round.
+    /// @notice Emitted when access criteria is updated for a round.
     /// @param  roundId_ The unique identifier of the round.
     /// @param  accessCriteriaId_ The identifier of the access criteria.
-    event AccessCriteriaSet(uint32 indexed roundId_, uint8 accessCriteriaId_);
-
-    /// @notice Emitted when access criteria is edited for a round.
-    /// @param  roundId_ The unique identifier of the round.
-    /// @param  accessCriteriaId_ The identifier of the access criteria.
-    event AccessCriteriaEdited(
-        uint32 indexed roundId_, uint8 accessCriteriaId_
+    /// @param  isEdit_ Whether the access criteria is being edited or set.
+    event AccessCriteriaUpdated(
+        uint32 indexed roundId_, uint8 accessCriteriaId_, bool isEdit_
     );
 
     /// @notice Emitted when access criteria privileges are set for a round.
@@ -232,11 +228,8 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @notice Round has already started and cannot be modified.
     error Module__LM_PC_FundingPot__RoundAlreadyStarted();
 
-    /// @notice Thrown when a hook contract is specified without a hook function.
-    error Module__LM_PC_FundingPot__HookFunctionRequiredWithHookContract();
-
-    /// @notice Thrown when a hook function is specified without a hook contract.
-    error Module__LM_PC_FundingPot__HookContractRequiredWithHookFunction();
+    /// @notice Invalid hook configuration - contract and function must both be set or both be unset.
+    error Module__LM_PC_FundingPot__InvalidHookConfiguration();
 
     /// @notice Round does not exist.
     error Module__LM_PC_FundingPot__RoundNotCreated();
@@ -256,14 +249,8 @@ interface ILM_PC_FundingPot_v1 is IERC20PaymentClientBase_v2 {
     /// @notice Round has already ended.
     error Module__LM_PC_FundingPot__RoundHasEnded();
 
-    /// @notice User does not meet the NFT access criteria.
-    error Module__LM_PC_FundingPot__AccessCriteriaNftFailed();
-
-    /// @notice User does not meet the merkle proof access criteria.
-    error Module__LM_PC_FundingPot__AccessCriteriaMerkleFailed();
-
-    /// @notice User is not on the allowlist.
-    error Module__LM_PC_FundingPot__AccessCriteriaListFailed();
+    /// @notice Access criteria check failed.
+    error Module__LM_PC_FundingPot__AccessCriteriaFailed(AccessCriteriaType accessType);
 
     /// @notice Access not permitted.
     error Module__LM_PC_FundingPot__AccessNotPermitted();

@@ -534,11 +534,7 @@ contract LM_PC_FundingPot_v1 is
         }
 
         // Emit the appropriate event based on whether this is a new setting or an edit
-        if (isEdit) {
-            emit AccessCriteriaEdited(roundId_, criteriaId);
-        } else {
-            emit AccessCriteriaSet(roundId_, criteriaId);
-        }
+        emit AccessCriteriaUpdated(roundId_, criteriaId, isEdit);
     }
 
     // Update removeAllowlistedAddresses to match the new approach
@@ -634,8 +630,6 @@ contract LM_PC_FundingPot_v1 is
         bytes32[] memory merkleProof_,
         UnspentPersonalRoundCap[] calldata unspentPersonalRoundCaps_
     ) external {
-        uint unspentPersonalCap;
-
         // Process each previous round cap that the user wants to carry over
         for (uint i = 0; i < unspentPersonalRoundCaps_.length; i++) {
             UnspentPersonalRoundCap memory roundCap =
@@ -652,6 +646,7 @@ contract LM_PC_FundingPot_v1 is
                 user_
             );
 
+            uint unspentPersonalCap;
             if (isEligible) {
                 AccessCriteriaPrivileges storage privileges =
                 roundIdToAccessCriteriaIdToPrivileges[roundCap.roundId][roundCap
@@ -662,19 +657,19 @@ contract LM_PC_FundingPot_v1 is
                 uint personalCap = privileges.personalCap;
 
                 if (userContribution < personalCap) {
-                    unspentPersonalCap += (personalCap - userContribution);
+                    unspentPersonalCap = (personalCap - userContribution);
                 }
             }
-        }
 
-        _contributeToRoundFor(
-            user_,
-            roundId_,
-            amount_,
-            accessCriteriaId_,
-            merkleProof_,
-            unspentPersonalCap
-        );
+            _contributeToRoundFor(
+                user_,
+                roundId_,
+                amount_,
+                accessCriteriaId_,
+                merkleProof_,
+                unspentPersonalCap
+            );
+        }
     }
 
     /// @inheritdoc ILM_PC_FundingPot_v1
@@ -725,10 +720,6 @@ contract LM_PC_FundingPot_v1 is
             EnumerableSet.values(contributorsByRound[roundId_]);
         uint contributorCount = contributors.length;
 
-        // Check batch size is not zero
-        if (batchSize_ == 0 || batchSize_ > contributorCount) {
-            revert Module__LM_PC_FundingPot__InvalidBatchParameters();
-        }
 
         // If autoClosure is false, only admin can process contributors
         if (!round.autoClosure) {
@@ -776,17 +767,9 @@ contract LM_PC_FundingPot_v1 is
         }
 
         // Validate hook contract and function consistency
-        if (
-            round_.hookContract != address(0) && round_.hookFunction.length == 0
-        ) {
-            revert
-                Module__LM_PC_FundingPot__HookFunctionRequiredWithHookContract();
-        }
-
-        if (round_.hookContract == address(0) && round_.hookFunction.length > 0)
-        {
-            revert
-                Module__LM_PC_FundingPot__HookContractRequiredWithHookFunction();
+        if ((round_.hookContract != address(0) && round_.hookFunction.length == 0) ||
+            (round_.hookContract == address(0) && round_.hookFunction.length > 0)) {
+            revert Module__LM_PC_FundingPot__InvalidHookConfiguration();
         }
     }
 
@@ -920,17 +903,7 @@ contract LM_PC_FundingPot_v1 is
         );
 
         if (!isEligible) {
-            if (accessCriteria.accessCriteriaType == AccessCriteriaType.NFT) {
-                revert Module__LM_PC_FundingPot__AccessCriteriaNftFailed();
-            }
-            if (accessCriteria.accessCriteriaType == AccessCriteriaType.MERKLE)
-            {
-                revert Module__LM_PC_FundingPot__AccessCriteriaMerkleFailed();
-            }
-
-            if (accessCriteria.accessCriteriaType == AccessCriteriaType.LIST) {
-                revert Module__LM_PC_FundingPot__AccessCriteriaListFailed();
-            }
+            revert Module__LM_PC_FundingPot__AccessCriteriaFailed(accessCriteria.accessCriteriaType);
         }
     }
 
@@ -1332,4 +1305,8 @@ contract LM_PC_FundingPot_v1 is
         bool timeEnded = round.roundEnd > 0 && block.timestamp >= round.roundEnd;
         return capReached || timeEnded;
     }
+
+ 
+
+
 }
