@@ -148,8 +148,8 @@ contract LM_PC_FundingPot_v1 is
     /// @notice Add a mapping to track the next unprocessed index for each round.
     mapping(uint32 => uint) private roundIdToNextUnprocessedIndex;
 
-    /// @notice The next available access criteria ID for each round
-    mapping(uint32 => uint8) private roundIdToNextAccessCriteriaId;
+    /// @notice Global counter for access criteria IDs
+    uint8 private nextAccessCriteriaId;
 
     /// @notice Storage gap for future upgrades.
     uint[50] private __gap;
@@ -475,7 +475,7 @@ contract LM_PC_FundingPot_v1 is
         // Otherwise, edit the existing one
         if (accessCriteriaId_ == 0) {
             unchecked {
-                criteriaId = ++roundIdToNextAccessCriteriaId[roundId_];
+                criteriaId = ++nextAccessCriteriaId;
             }
         } else {
             criteriaId = accessCriteriaId_;
