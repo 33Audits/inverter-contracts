@@ -6,25 +6,17 @@ import {IERC20PaymentClientBase_v2} from
     "@lm/interfaces/IERC20PaymentClientBase_v2.sol";
 
 /**
- * @title   Inverter Template Logic Module Payment Client
+ * @title   House Protocol Lending Facility Interface
  *
- * @notice  A template logic module payment client that handles deposits and payment processing.
- *          Users can deposit tokens up to a maximum amount, and authorized admins can process
- *          these deposits into payment orders.
+ * @notice  Interface for the House Protocol lending facility that allows users to borrow 
+ *          collateral tokens against issuance tokens with dynamic fee calculation.
  *
- * @dev     This contract implements the following key functionality:
- *          - Deposit handling with maximum amount validation
- *          - Payment order creation and processing through the Orchestrator
- *          - Role-based access control for deposit processing
- *          - ERC20 token integration with SafeERC20
- *          - Interface compliance checks via ERC165
- *
- *          Key components:
- *          - Inherits ERC20PaymentClientBase_v2 for payment client functionality
- *          - Uses DEPOSIT_ADMIN_ROLE for authorized payment processing
- *          - Tracks user deposits in _depositedAmounts mapping
- *          - Enforces maximum deposit limit of 100 ether
- *          - Processes payments through Orchestrator's payment processor
+ * @dev     This interface defines the following key functionality:
+ *          - Borrowing collateral tokens against locked issuance tokens
+ *          - Dynamic fee calculation based on floor liquidity rate
+ *          - Repayment functionality with issuance token unlocking
+ *          - Configurable borrowing limits and quotas
+ *          - Role-based access control for facility management
  *
  * @custom:security-contact security@inverter.network
  *                          In case of any concerns or findings, please refer
@@ -39,36 +31,156 @@ interface ILM_PC_HouseProtocol_v1 is IERC20PaymentClientBase_v2 {
     // =========================================================================
     // Events
 
-    /// @notice Emit when the token amount has been deposited.
-    /// @param  sender_ The address of the depositor.
-    /// @param  amount_ The amount of tokens deposited.
-    event Deposited(address indexed sender_, uint amount_);
+    /// @notice Emitted when a user borrows collateral tokens
+    /// @param user The address of the borrower
+    /// @param requestedAmount The requested loan amount
+    /// @param fee The dynamic borrowing fee deducted
+    /// @param netAmount The net amount received by the user
+    event Borrowed(
+        address indexed user,
+        uint requestedAmount,
+        uint fee,
+        uint netAmount
+    );
+
+    /// @notice Emitted when a user repays their loan
+    /// @param user The address of the borrower
+    /// @param repaymentAmount The amount repaid
+    /// @param issuanceTokensUnlocked The amount of issuance tokens unlocked
+    event Repaid(
+        address indexed user,
+        uint repaymentAmount,
+        uint issuanceTokensUnlocked
+    );
+
+    /// @notice Emitted when a user locks issuance tokens
+    /// @param user The address of the user
+    /// @param amount The amount of issuance tokens locked
+    event IssuanceTokensLocked(address indexed user, uint amount);
+
+    /// @notice Emitted when a user unlocks issuance tokens
+    /// @param user The address of the user
+    /// @param amount The amount of issuance tokens unlocked
+    event IssuanceTokensUnlocked(address indexed user, uint amount);
+
+    /// @notice Emitted when the individual borrow limit is updated
+    /// @param newLimit The new individual borrow limit
+    event IndividualBorrowLimitUpdated(uint newLimit);
+
+    /// @notice Emitted when the borrowable quota is updated
+    /// @param newQuota The new borrowable quota (in basis points)
+    event BorrowableQuotaUpdated(uint newQuota);
+
+    /// @notice Emitted when the dynamic fee calculator is updated
+    /// @param newCalculator The new fee calculator address
+    event DynamicFeeCalculatorUpdated(address newCalculator);
 
     // =========================================================================
     // Errors
 
-    /// @notice Amount can not be zero.
-    error Module__LM_PC_HouseProtocol_InvalidDepositAmount();
+    /// @notice Amount cannot be zero
+    error Module__LM_PC_HouseProtocol_InvalidBorrowAmount();
+
+    /// @notice Insufficient borrowing power
+    error Module__LM_PC_HouseProtocol_InsufficientBorrowingPower();
+
+    /// @notice Borrowable quota exceeded
+    error Module__LM_PC_HouseProtocol_BorrowableQuotaExceeded();
+
+    /// @notice Individual borrow limit exceeded
+    error Module__LM_PC_HouseProtocol_IndividualBorrowLimitExceeded();
+
+    /// @notice Repayment amount exceeds outstanding loan
+    error Module__LM_PC_HouseProtocol_RepaymentAmountExceedsLoan();
+
+    /// @notice Insufficient locked issuance tokens
+    error Module__LM_PC_HouseProtocol_InsufficientLockedTokens();
+
+    /// @notice Cannot unlock tokens with outstanding loan
+    error Module__LM_PC_HouseProtocol_CannotUnlockWithOutstandingLoan();
+
+    /// @notice Caller not authorized
+    error Module__LM_PC_HouseProtocol_CallerNotAuthorized();
 
     // =========================================================================
     // Public - Getters
 
-    /// @notice Returns the deposited balance of a specific address.
-    /// @param  user_ The address of the user.
-    /// @return amount_ Deposited amount of the user.
-    function getDepositedAmount(address user_)
+    /// @notice Returns the amount of issuance tokens locked by a user
+    /// @param user_ The address of the user
+    /// @return amount_ The amount of locked issuance tokens
+    function getLockedIssuanceTokens(address user_)
         external
         view
         returns (uint amount_);
 
+    /// @notice Returns the outstanding loan amount for a user
+    /// @param user_ The address of the user
+    /// @return amount_ The outstanding loan amount
+    function getOutstandingLoan(address user_)
+        external
+        view
+        returns (uint amount_);
+
+    /// @notice Returns the system-wide Borrow Capacity
+    /// @return capacity_ The borrow capacity
+    function getBorrowCapacity()
+        external
+        view
+        returns (uint capacity_);
+
+    /// @notice Returns the current borrow quota as a percentage of borrow capacity
+    /// @return quota_ The current borrow quota (in basis points)
+    function getCurrentBorrowQuota()
+        external
+        view
+        returns (uint quota_);
+
+    /// @notice Returns the floor liquidity rate
+    /// @return rate_ The floor liquidity rate (in basis points)
+    function getFloorLiquidityRate()
+        external
+        view
+        returns (uint rate_);
+
+    /// @notice Returns the borrowing power for a specific user
+    /// @param user_ The address of the user
+    /// @return power_ The user's borrowing power
+    function getUserBorrowingPower(address user_)
+        external
+        view
+        returns (uint power_);
+
     // =========================================================================
     // Public - Mutating
 
-    /// @notice Deposits tokens to the funding manager.
-    /// @param  amount_ The amount of tokens to deposit.
-    function deposit(uint amount_) external;
+    /// @notice Borrow collateral tokens against locked issuance tokens
+    /// @param requestedLoanAmount_ The amount of collateral tokens to borrow
+    function borrow(uint requestedLoanAmount_) external;
 
-    /// @notice Process a specific deposit by calling processPayments on the payment processor
-    /// @param user_ The address of the user whose deposit to process
-    function processDeposit(address user_) external;
+    /// @notice Repay a loan with collateral tokens
+    /// @param repaymentAmount_ The amount of collateral tokens to repay
+    function repay(uint repaymentAmount_) external;
+
+    /// @notice Lock issuance tokens to enable borrowing
+    /// @param amount_ The amount of issuance tokens to lock
+    function lockIssuanceTokens(uint amount_) external;
+
+    /// @notice Unlock issuance tokens (only if no outstanding loan)
+    /// @param amount_ The amount of issuance tokens to unlock
+    function unlockIssuanceTokens(uint amount_) external;
+
+    // =========================================================================
+    // Public - Configuration (Lending Facility Manager only)
+
+    /// @notice Set the individual borrow limit
+    /// @param newIndividualBorrowLimit_ The new individual borrow limit
+    function setIndividualBorrowLimit(uint newIndividualBorrowLimit_) external;
+
+    /// @notice Set the borrowable quota
+    /// @param newBorrowableQuota_ The new borrowable quota (in basis points)
+    function setBorrowableQuota(uint newBorrowableQuota_) external;
+
+    /// @notice Set the Dynamic Fee Calculator address
+    /// @param newFeeCalculator_ The new fee calculator address
+    function setDynamicFeeCalculator(address newFeeCalculator_) external;
 }

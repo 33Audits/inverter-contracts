@@ -24,18 +24,17 @@ import {ILM_PC_HouseProtocol_v1} from
     "src/modules/logicModule/interfaces/ILM_PC_HouseProtocol_v1.sol";
 
 /**
- * @title   Inverter Template Logic Module Payment Client
+ * @title   House Protocol Lending Facility Logic Module
  *
- * @notice  A template logic module payment client that handles deposits and payment processing.
- *          Users can deposit tokens up to a maximum amount, and authorized admins can process
- *          these deposits into payment orders.
+ * @notice  A lending facility that allows users to borrow collateral tokens against issuance tokens.
+ *          The system uses dynamic fee calculation based on liquidity rates and enforces borrowing limits.
  *
  * @dev     This contract implements the following key functionality:
- *          - Deposit handling with maximum amount validation
- *          - Payment order creation and processing through the Orchestrator
- *          - Role-based access control for deposit processing
- *          - ERC20 token integration with SafeERC20
- *          - Interface compliance checks via ERC165
+ *          - Borrowing collateral tokens against locked issuance tokens
+ *          - Dynamic fee calculation based on floor liquidity rate
+ *          - Repayment functionality with issuance token unlocking
+ *          - Configurable borrowing limits and quotas
+ *          - Role-based access control for facility management
  *
  * @custom:security-contact security@inverter.network
  *                          In case of any concerns or findings, please refer
@@ -62,6 +61,7 @@ contract LM_PC_HouseProtocol_v1 is
     function supportsInterface(bytes4 interfaceId_)
         public
         view
+
         virtual
         override(ERC20PaymentClientBase_v2)
         returns (bool)
@@ -73,28 +73,55 @@ contract LM_PC_HouseProtocol_v1 is
     //--------------------------------------------------------------------------
     // Constants
 
-    uint internal constant _maxDepositAmount = 100 ether;
+    /// @notice Maximum borrowable quota percentage (100%)
+    uint internal constant _MAX_BORROWABLE_QUOTA = 10000; // 100% in basis points
 
     //--------------------------------------------------------------------------
     // State
 
-    /// @dev The role that allows processing deposits
-    bytes32 public constant DEPOSIT_ADMIN_ROLE = "DEPOSIT_ADMIN";
+    /// @dev The role that allows managing the lending facility
+    bytes32 public constant LENDING_FACILITY_MANAGER_ROLE = "LENDING_FACILITY_MANAGER";
 
-    /// @notice    Mapping of user addresses to their deposited token amounts.
-    mapping(address user => uint amount) internal _depositedAmounts;
+    /// @notice Address of the Dynamic Fee Calculator contract
+    address public dynamicFeeCalculator;
 
-    /// @notice    Payment token.
-    IERC20 internal _paymentToken;
+    /// @notice Borrowable Quota as percentage of Borrow Capacity (in basis points)
+    uint public borrowableQuota;
 
-    /// @notice    Storage gap for future upgrades.
+    /// @notice Individual borrow limit per user
+    uint public individualBorrowLimit;
+
+    /// @notice Currently borrowed amount across all users
+    uint public currentlyBorrowedAmount;
+
+    /// @notice Mapping of user addresses to their locked issuance token amounts
+    mapping(address user => uint amount) internal _lockedIssuanceTokens;
+
+    /// @notice Mapping of user addresses to their outstanding loan principals
+    mapping(address user => uint amount) internal _outstandingLoans;
+
+    /// @notice Collateral token (the token being borrowed)
+    IERC20 internal _collateralToken;
+
+    /// @notice Issuance token (the token being locked as collateral)
+    IERC20 internal _issuanceToken;
+
+    /// @notice DBC FM address for floor price calculations
+    address internal _dbcFmAddress;
+
+    /// @notice Storage gap for future upgrades
     uint[50] private __gap;
 
     // =========================================================================
     // Modifiers
 
-    modifier onlyValidDepositAmount(uint amount_) {
-        _ensureValidDepositAmount(amount_);
+    modifier onlyLendingFacilityManager() {
+        _checkRoleModifier(LENDING_FACILITY_MANAGER_ROLE, _msgSender());
+        _;
+    }
+
+    modifier onlyValidBorrowAmount(uint amount_) {
+        _ensureValidBorrowAmount(amount_);
         _;
     }
 
@@ -109,79 +136,284 @@ contract LM_PC_HouseProtocol_v1 is
     ) external override(Module_v1) initializer {
         __Module_init(orchestrator_, metadata_);
 
-        // Decode module specific init data through use of configData bytes.
-        // This value is an example value used to showcase the setters/getters
-        // and internal functions/state formatting style.
-        (address paymentToken) = abi.decode(configData_, (address));
+        // Decode module specific init data
+        (
+            address collateralToken,
+            address issuanceToken,
+            address dbcFmAddress,
+            uint borrowableQuota_,
+            uint individualBorrowLimit_
+        ) = abi.decode(configData_, (address, address, address, uint, uint));
 
-        // Set init state.
-        _paymentToken = IERC20(paymentToken);
+        // Set init state
+        _collateralToken = IERC20(collateralToken);
+        _issuanceToken = IERC20(issuanceToken);
+        _dbcFmAddress = dbcFmAddress;
+        borrowableQuota = borrowableQuota_;
+        individualBorrowLimit = individualBorrowLimit_;
     }
 
     // =========================================================================
     // Public - Mutating
 
     /// @inheritdoc ILM_PC_HouseProtocol_v1
-    function deposit(uint amount_)
+    function borrow(uint requestedLoanAmount_)
         external
         virtual
-        onlyValidDepositAmount(amount_)
+        onlyValidBorrowAmount(requestedLoanAmount_)
     {
-        // Update state.
-        _depositedAmounts[_msgSender()] += amount_;
+        address user = _msgSender();
+        
+        // Calculate user's borrowing power based on locked issuance tokens
+        uint userBorrowingPower = _calculateUserBorrowingPower(user);
+        
+        // Ensure user has sufficient borrowing power
+        require(
+            requestedLoanAmount_ <= userBorrowingPower,
+            "Insufficient borrowing power"
+        );
 
-        // Transfer tokens.
-        _paymentToken.safeTransferFrom(_msgSender(), address(this), amount_);
+        // Check if borrowing would exceed borrowable quota
+        require(
+            currentlyBorrowedAmount + requestedLoanAmount_ <= _calculateBorrowCapacity() * borrowableQuota / 10000,
+            "Borrowable quota exceeded"
+        );
 
-        // Emit event.
-        emit Deposited(_msgSender(), amount_);
+        // Check individual borrow limit
+        require(
+            requestedLoanAmount_ <= individualBorrowLimit,
+            "Individual borrow limit exceeded"
+        );
+
+        // Calculate dynamic borrowing fee
+        uint dynamicBorrowingFee = _calculateDynamicBorrowingFee(requestedLoanAmount_);
+        uint netAmountToUser = requestedLoanAmount_ - dynamicBorrowingFee;
+
+        // Update state
+        currentlyBorrowedAmount += requestedLoanAmount_;
+        _outstandingLoans[user] += requestedLoanAmount_;
+
+        // Transfer fee to fee manager
+        if (dynamicBorrowingFee > 0) {
+            _collateralToken.safeTransfer(
+                __Module_orchestrator.governor().getFeeManager(),
+                dynamicBorrowingFee
+            );
+        }
+
+        // Transfer net amount to user
+        _collateralToken.safeTransfer(user, netAmountToUser);
+
+        // Emit event
+        emit Borrowed(user, requestedLoanAmount_, dynamicBorrowingFee, netAmountToUser);
     }
 
     /// @inheritdoc ILM_PC_HouseProtocol_v1
-    function processDeposit(address user_)
-        external
-        onlyModuleRole(DEPOSIT_ADMIN_ROLE)
-    {
-        uint amount = _depositedAmounts[user_];
-
-        // Clear the deposit amount before processing.
-        _depositedAmounts[user_] = 0;
-
-        // Create and add payment order.
-        PaymentOrder memory order = PaymentOrder({
-            recipient: user_,
-            paymentToken: address(_paymentToken),
-            amount: amount,
-            originChainId: block.chainid,
-            targetChainId: block.chainid,
-            flags: 0,
-            data: new bytes32[](0)
-        });
-
-        _addPaymentOrder(order);
-
-        // Process the payment.
-        __Module_orchestrator.paymentProcessor().processPayments(
-            IERC20PaymentClientBase_v2(address(this))
+    function repay(uint repaymentAmount_) external virtual {
+        address user = _msgSender();
+        
+        require(
+            _outstandingLoans[user] >= repaymentAmount_,
+            "Repayment amount exceeds outstanding loan"
         );
+
+        // Update state
+        _outstandingLoans[user] -= repaymentAmount_;
+        currentlyBorrowedAmount -= repaymentAmount_;
+
+        // Transfer collateral back to lending facility
+        _collateralToken.safeTransferFrom(
+            user,
+            address(this),
+            repaymentAmount_
+        );
+
+        // Calculate and unlock issuance tokens
+        uint issuanceTokensToUnlock = _calculateIssuanceTokensToUnlock(
+            user,
+            repaymentAmount_
+        );
+
+        if (issuanceTokensToUnlock > 0) {
+            _lockedIssuanceTokens[user] -= issuanceTokensToUnlock;
+            _issuanceToken.safeTransfer(user, issuanceTokensToUnlock);
+        }
+
+        // Emit event
+        emit Repaid(user, repaymentAmount_, issuanceTokensToUnlock);
+    }
+
+    /// @inheritdoc ILM_PC_HouseProtocol_v1
+    function lockIssuanceTokens(uint amount_) external virtual {
+        address user = _msgSender();
+        
+        require(amount_ > 0, "Amount must be greater than zero");
+
+        // Transfer issuance tokens from user to contract
+        _issuanceToken.safeTransferFrom(user, address(this), amount_);
+        
+        // Update locked amount
+        _lockedIssuanceTokens[user] += amount_;
+
+        // Emit event
+        emit IssuanceTokensLocked(user, amount_);
+    }
+
+    /// @inheritdoc ILM_PC_HouseProtocol_v1
+    function unlockIssuanceTokens(uint amount_) external virtual {
+        address user = _msgSender();
+        
+        require(
+            _lockedIssuanceTokens[user] >= amount_,
+            "Insufficient locked issuance tokens"
+        );
+        
+        require(
+            _outstandingLoans[user] == 0,
+            "Cannot unlock tokens with outstanding loan"
+        );
+
+        // Update locked amount
+        _lockedIssuanceTokens[user] -= amount_;
+        
+        // Transfer tokens back to user
+        _issuanceToken.safeTransfer(user, amount_);
+
+        // Emit event
+        emit IssuanceTokensUnlocked(user, amount_);
+    }
+
+    // =========================================================================
+    // Public - Configuration (Lending Facility Manager only)
+
+    /// @notice Set the individual borrow limit
+    /// @param newIndividualBorrowLimit_ The new individual borrow limit
+    function setIndividualBorrowLimit(uint newIndividualBorrowLimit_)
+        external
+        onlyLendingFacilityManager
+    {
+        individualBorrowLimit = newIndividualBorrowLimit_;
+        emit IndividualBorrowLimitUpdated(newIndividualBorrowLimit_);
+    }
+
+    /// @notice Set the borrowable quota
+    /// @param newBorrowableQuota_ The new borrowable quota (in basis points)
+    function setBorrowableQuota(uint newBorrowableQuota_)
+        external
+        onlyLendingFacilityManager
+    {
+        require(
+            newBorrowableQuota_ <= _MAX_BORROWABLE_QUOTA,
+            "Borrowable quota cannot exceed 100%"
+        );
+        borrowableQuota = newBorrowableQuota_;
+        emit BorrowableQuotaUpdated(newBorrowableQuota_);
+    }
+
+    /// @notice Set the Dynamic Fee Calculator address
+    /// @param newFeeCalculator_ The new fee calculator address
+    function setDynamicFeeCalculator(address newFeeCalculator_)
+        external
+        onlyLendingFacilityManager
+    {
+        require(newFeeCalculator_ != address(0), "Invalid fee calculator address");
+        dynamicFeeCalculator = newFeeCalculator_;
+        emit DynamicFeeCalculatorUpdated(newFeeCalculator_);
     }
 
     // =========================================================================
     // Public - Getters
 
     /// @inheritdoc ILM_PC_HouseProtocol_v1
-    function getDepositedAmount(address user_) external view returns (uint) {
-        return _depositedAmounts[user_];
+    function getLockedIssuanceTokens(address user_) external view returns (uint) {
+        return _lockedIssuanceTokens[user_];
+    }
+
+    /// @inheritdoc ILM_PC_HouseProtocol_v1
+    function getOutstandingLoan(address user_) external view returns (uint) {
+        return _outstandingLoans[user_];
+    }
+
+    /// @inheritdoc ILM_PC_HouseProtocol_v1
+    function getBorrowCapacity() external view returns (uint) {
+        return _calculateBorrowCapacity();
+    }
+
+    /// @inheritdoc ILM_PC_HouseProtocol_v1
+    function getCurrentBorrowQuota() external view returns (uint) {
+        uint borrowCapacity = _calculateBorrowCapacity();
+        if (borrowCapacity == 0) return 0;
+        return (currentlyBorrowedAmount * 10000) / borrowCapacity;
+    }
+
+    /// @inheritdoc ILM_PC_HouseProtocol_v1
+    function getFloorLiquidityRate() external view returns (uint) {
+        uint borrowCapacity = _calculateBorrowCapacity();
+        uint borrowableAmount = borrowCapacity * borrowableQuota / 10000;
+        
+        if (borrowableAmount == 0) return 0;
+        
+        return ((borrowableAmount - currentlyBorrowedAmount) * 10000) / borrowableAmount;
+    }
+
+    /// @inheritdoc ILM_PC_HouseProtocol_v1
+    function getUserBorrowingPower(address user_) external view returns (uint) {
+        return _calculateUserBorrowingPower(user_);
     }
 
     //--------------------------------------------------------------------------
     // Internal
 
-    /// @dev    Ensures the deposit amount is valid.
-    /// @param  amount_ The amount to validate.
-    function _ensureValidDepositAmount(uint amount_) internal pure {
-        if (amount_ > _maxDepositAmount) {
-            revert Module__LM_PC_HouseProtocol_InvalidDepositAmount();
+    /// @dev Ensures the borrow amount is valid
+    /// @param amount_ The amount to validate
+    function _ensureValidBorrowAmount(uint amount_) internal pure {
+        require(amount_ > 0, "Borrow amount must be greater than zero");
+    }
+
+    /// @dev Calculate the system-wide Borrow Capacity
+    /// @return The borrow capacity
+    function _calculateBorrowCapacity() internal view returns (uint) {
+        // This would need to be implemented based on the actual DBC FM interface
+        // For now, returning a placeholder value
+        // In reality, this would be: virtualIssuanceSupply * P_floor
+        return 1000000 ether; // Placeholder
+    }
+
+    /// @dev Calculate user's borrowing power based on locked issuance tokens
+    /// @param user_ The user address
+    /// @return The user's borrowing power
+    function _calculateUserBorrowingPower(address user_) internal view returns (uint) {
+        // This would need to be implemented based on the actual DBC FM interface
+        // For now, returning a placeholder calculation
+        // In reality, this would be: UserLockedIssuanceTokens * P_floor
+        return _lockedIssuanceTokens[user_] * 2; // Placeholder: 2x leverage
+    }
+
+    /// @dev Calculate dynamic borrowing fee using the fee calculator
+    /// @param requestedAmount_ The requested loan amount
+    /// @return The dynamic borrowing fee
+    function _calculateDynamicBorrowingFee(uint requestedAmount_) internal view returns (uint) {
+        if (dynamicFeeCalculator == address(0)) {
+            return 0; // No fee if no calculator is set
         }
+
+        // This would need to be implemented based on the actual fee calculator interface
+        // For now, returning a placeholder calculation
+        uint floorLiquidityRate = this.getFloorLiquidityRate();
+        return (requestedAmount_ * floorLiquidityRate) / 10000; // Placeholder: 1% fee
+    }
+
+    /// @dev Calculate issuance tokens to unlock based on repayment amount
+    /// @param user_ The user address
+    /// @param repaymentAmount_ The repayment amount
+    /// @return The amount of issuance tokens to unlock
+    function _calculateIssuanceTokensToUnlock(address user_, uint repaymentAmount_) internal view returns (uint) {
+        if (_outstandingLoans[user_] == 0) return 0;
+        
+        // Calculate the proportion of the loan being repaid
+        uint repaymentProportion = (repaymentAmount_ * 10000) / _outstandingLoans[user_];
+        
+        // Calculate the proportion of locked issuance tokens to unlock
+        return (_lockedIssuanceTokens[user_] * repaymentProportion) / 10000;
     }
 }
