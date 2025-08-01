@@ -482,9 +482,15 @@ contract LM_PC_HouseProtocol_v1 is
             return 0; // No fee if no calculator is set
         }
 
-        // Calculate fee based on floor liquidity rate
+        // Calculate fee using the dynamic fee calculator library
         uint floorLiquidityRate = this.getFloorLiquidityRate();
-        return (requestedAmount_ * floorLiquidityRate) / 10_000; // Fee based on liquidity rate
+        uint feeRate = DynamicFeeCalculatorLib_v1.calculateOriginationFee(
+            floorLiquidityRate,
+            _dynamicFeeParameters.Z_origination,
+            _dynamicFeeParameters.A_origination,
+            _dynamicFeeParameters.m_origination
+        );
+        return (requestedAmount_ * feeRate) / 1e18; // Fee based on calculated rate
     }
 
     /// @dev Calculate issuance tokens to unlock based on repayment amount
